@@ -102,6 +102,6 @@ async function handleSave(req: SaveRequest, sendResponse: (r: SaveResult) => voi
 async function handleExport(sendResponse: (r: { ok: boolean; bytes?: ArrayBuffer }) => void) {
   try {
     const bytes = await dbExportBytes();
-    sendResponse({ ok: true, bytes: bytes.buffer });
+    sendResponse({ ok: true, bytes: bytes.buffer as ArrayBuffer });
   } catch { sendResponse({ ok: false }); }
 }

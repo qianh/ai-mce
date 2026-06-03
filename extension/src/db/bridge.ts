@@ -25,11 +25,17 @@ function getWorker(): Worker {
   return _worker;
 }
 
-function send(cmd: Omit<DbCommand, 'id'>): Promise<DbResponse> {
+type CmdPayload =
+  | { cmd: 'init' }
+  | { cmd: 'exec'; sql: string; params?: unknown[] }
+  | { cmd: 'query'; sql: string; params?: unknown[] }
+  | { cmd: 'export_bytes' };
+
+function send(cmd: CmdPayload): Promise<DbResponse> {
   const id = crypto.randomUUID();
   return new Promise((resolve) => {
     _pending.set(id, resolve);
-    getWorker().postMessage({ ...cmd, id } as DbCommand);
+    getWorker().postMessage({ ...cmd, id });
     setTimeout(() => {
       if (_pending.has(id)) { _pending.delete(id); resolve({ id, ok: false, error: `timeout: ${cmd.cmd}` }); }
     }, 15_000);

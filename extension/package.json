@@ -5,6 +5,7 @@
   "private": true,
   "devDependencies": {
     "@types/bun": "latest",
+    "@types/chrome": "^0.1.42",
     "@types/jsdom": "^28.0.3",
     "@types/react": "^19.2.16",
     "@types/react-dom": "^19.2.3",

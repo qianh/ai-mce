@@ -1,10 +1,11 @@
 // Dedicated Worker — runs wa-sqlite with OPFS backend.
 // Receives DbCommand, executes SQL, posts DbResponse.
-// @ts-expect-error — wa-sqlite has no bundled TS types
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore — wa-sqlite ships JS-only, no bundled TS types
 import SQLiteESMFactory from 'wa-sqlite/dist/wa-sqlite-async.mjs';
-// @ts-expect-error
+// @ts-ignore
 import * as SQLite from 'wa-sqlite';
-// @ts-expect-error
+// @ts-ignore
 import { OriginPrivateFileSystemVFS } from 'wa-sqlite/src/examples/OriginPrivateFileSystemVFS.js';
 import type { DbCommand, DbResponse } from './bridge';
 
