@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AI Memory Capture · UI 设计</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="tokens.css" />
+<style>
+  html, body { margin: 0; height: 100%; background: #f0eee9; }
+  [data-theme="dark"] .design-canvas { background: #18120e !important; }
+  /* floating control bar */
+  #ctl {
+    position: fixed; top: 14px; right: 16px; z-index: 200;
+    display: flex; align-items: center; gap: 8px;
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: 999px; padding: 6px 8px 6px 14px;
+    box-shadow: var(--shadow-md); font-family: var(--font-ui);
+  }
+  #ctl .lbl { font-size: 12.5px; font-weight: 700; color: var(--ink); letter-spacing: -.01em; }
+  #ctl .lbl span { color: var(--ink-3); font-weight: 500; }
+  #themeBtn {
+    display: inline-flex; align-items: center; gap: 7px; cursor: pointer;
+    border: 1px solid var(--line-2); background: var(--surface-2); color: var(--ink);
+    border-radius: 999px; padding: 6px 13px; font-family: var(--font-ui);
+    font-size: 12.5px; font-weight: 600;
+  }
+  #themeBtn svg { width: 15px; height: 15px; }
+</style>
+</head>
+<body>
+<div id="ctl">
+  <span class="lbl">AI Memory Capture&nbsp;&nbsp;<span>UI Kit</span></span>
+  <button id="themeBtn" aria-label="切换明暗">
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="8" r="3.2"/><path d="M8 1.5v1.6M8 12.9v1.6M14.5 8h-1.6M3.1 8H1.5M12.6 3.4l-1.1 1.1M4.5 11.5l-1.1 1.1M12.6 12.6l-1.1-1.1M4.5 4.5L3.4 3.4"/></svg>
+    <span id="themeLbl">明亮</span>
+  </button>
+</div>
+
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script type="text/babel" src="design-canvas.jsx"></script>
+<script type="text/babel" src="shared-ui.jsx"></script>
+<script type="text/babel" src="screens-extension.jsx"></script>
+<script type="text/babel" src="screens-console.jsx"></script>
+<script type="text/babel" src="screens-auth.jsx"></script>
+
+<script type="text/babel">
+const {
+  DesignCanvas, DCSection, DCArtboard,
+  ExtSave, ExtDegraded, ExtSensitive, ExtSuccess, ExtFail, SidePanel,
+  ConsoleList, ConsoleDetail, ConsoleReview, ConsolePack, ConsoleSettings,
+  AuthLogin, AuthConsent,
+} = window;
+
+// theme toggle
+(function () {
+  const btn = document.getElementById('themeBtn');
+  const lbl = document.getElementById('themeLbl');
+  const root = document.documentElement;
+  const set = (t) => {
+    root.setAttribute('data-theme', t);
+    lbl.textContent = t === 'dark' ? '夜间' : '明亮';
+    try { localStorage.setItem('amc-theme', t); } catch {}
+  };
+  set(localStorage.getItem('amc-theme') || 'light');
+  btn.addEventListener('click', () => set(root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark'));
+})();
+
+const EXT = 'data-screen-label';
+
+function App() {
+  return (
+    <DesignCanvas>
+      <DCSection id="ext" title="① 浏览器插件 · Extension"
+        subtitle="用户主动触发 · 保存前预览 · 默认只保存摘要与结构化记忆">
+        <DCArtboard id="ext-save"    label="Popup · 保存预览（主界面）" width={948} height={868}><div {...{[EXT]:'Popup 保存预览'}} style={{height:'100%'}}><ExtSave /></div></DCArtboard>
+        <DCArtboard id="ext-degrade" label="Popup · 提取质量低 / 降级"   width={948} height={868}><ExtDegraded /></DCArtboard>
+        <DCArtboard id="ext-sense"   label="Popup · 敏感内容命中"        width={948} height={868}><ExtSensitive /></DCArtboard>
+        <DCArtboard id="ext-success" label="Popup · 保存成功"            width={948} height={868}><ExtSuccess /></DCArtboard>
+        <DCArtboard id="ext-fail"    label="Popup · 保存失败"            width={948} height={868}><ExtFail /></DCArtboard>
+        <DCArtboard id="ext-panel"   label="Side Panel · 摘要 + 候选记忆" width={1000} height={700}><SidePanel /></DCArtboard>
+      </DCSection>
+
+      <DCSection id="console" title="② Web 控制台 · Console"
+        subtitle="查看 · 确认 · 复制上下文 · 删除 · 让用户看到保存后的即时价值">
+        <DCArtboard id="c-list"     label="Capture 列表"                 width={1240} height={792}><ConsoleList /></DCArtboard>
+        <DCArtboard id="c-detail"   label="Capture 详情"                 width={1240} height={792}><ConsoleDetail /></DCArtboard>
+        <DCArtboard id="c-review"   label="Review Inbox · 待确认 L4/L5"  width={1240} height={792}><ConsoleReview /></DCArtboard>
+        <DCArtboard id="c-pack"     label="Context Pack"                 width={1240} height={792}><ConsolePack /></DCArtboard>
+        <DCArtboard id="c-settings" label="设置 · 隐私与数据保留"        width={1240} height={792}><ConsoleSettings /></DCArtboard>
+      </DCSection>
+
+      <DCSection id="auth" title="③ 账号 · Auth"
+        subtitle="OAuth + PKCE · 插件与控制台共用账号 · 不存储长期 API Key">
+        <DCArtboard id="a-login"   label="登录"           width={1180} height={720}><AuthLogin /></DCArtboard>
+        <DCArtboard id="a-consent" label="OAuth 授权页"   width={1180} height={720}><AuthConsent /></DCArtboard>
+      </DCSection>
+    </DesignCanvas>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>

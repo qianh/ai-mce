@@ -1,0 +1,154 @@
+/* ============================================================
+   AI Memory Capture — Design Tokens
+   温暖人文 · Newsreader/Noto Serif 衬线标题 · teal 强调 · 明暗双模
+   ============================================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=Hanken+Grotesk:wght@400;500;600;700&family=Noto+Serif+SC:wght@500;600&family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+:root {
+  /* warm light */
+  --paper:        oklch(0.984 0.007 78);
+  --paper-2:      oklch(0.965 0.009 74);
+  --surface:      oklch(0.997 0.003 80);
+  --surface-2:    oklch(0.972 0.008 74);
+  --surface-3:    oklch(0.955 0.010 72);
+  --ink:          oklch(0.275 0.013 58);
+  --ink-2:        oklch(0.445 0.013 60);
+  --ink-3:        oklch(0.605 0.012 62);
+  --line:         oklch(0.912 0.008 72);
+  --line-2:       oklch(0.862 0.010 70);
+  --accent:       oklch(0.585 0.082 184);
+  --accent-2:     oklch(0.515 0.084 186);
+  --accent-ink:   oklch(0.470 0.080 186);
+  --accent-soft:  oklch(0.952 0.026 184);
+  --accent-line:  oklch(0.860 0.045 184);
+  --on-accent:    oklch(0.995 0.004 184);
+  --shadow-sm:    0 1px 2px rgba(45,38,30,.06), 0 1px 3px rgba(45,38,30,.05);
+  --shadow-md:    0 4px 14px rgba(45,38,30,.08), 0 1px 4px rgba(45,38,30,.05);
+  --shadow-lg:    0 18px 50px rgba(45,38,30,.16), 0 4px 14px rgba(45,38,30,.08);
+
+  /* memory levels L0..L5 — soft bg + readable fg */
+  --l0-fg: oklch(0.55 0.010 70);  --l0-bg: oklch(0.945 0.006 70);  --l0-line: oklch(0.88 0.008 70);
+  --l1-fg: oklch(0.54 0.040 245); --l1-bg: oklch(0.952 0.020 245); --l1-line: oklch(0.88 0.030 245);
+  --l2-fg: oklch(0.53 0.075 250); --l2-bg: oklch(0.950 0.034 250); --l2-line: oklch(0.86 0.050 250);
+  --l3-fg: oklch(0.49 0.080 186); --l3-bg: oklch(0.948 0.030 186); --l3-line: oklch(0.85 0.050 186);
+  --l4-fg: oklch(0.53 0.090 72);  --l4-bg: oklch(0.954 0.038 78);  --l4-line: oklch(0.86 0.060 75);
+  --l5-fg: oklch(0.52 0.110 40);  --l5-bg: oklch(0.952 0.040 42);  --l5-line: oklch(0.86 0.065 42);
+
+  --ok-fg: oklch(0.52 0.090 158); --ok-bg: oklch(0.950 0.038 160);
+  --warn-fg: oklch(0.55 0.100 60); --warn-bg: oklch(0.955 0.045 70);
+  --danger-fg: oklch(0.53 0.130 28); --danger-bg: oklch(0.954 0.045 30);
+
+  --r-sm: 7px; --r-md: 11px; --r-lg: 16px; --r-xl: 22px;
+  --font-display: 'Newsreader', 'Noto Serif SC', Georgia, serif;
+  --font-ui: 'Hanken Grotesk', 'Noto Sans SC', -apple-system, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', monospace;
+}
+
+[data-theme="dark"] {
+  --paper:        oklch(0.205 0.008 66);
+  --paper-2:      oklch(0.185 0.008 64);
+  --surface:      oklch(0.245 0.009 68);
+  --surface-2:    oklch(0.285 0.010 68);
+  --surface-3:    oklch(0.320 0.011 68);
+  --ink:          oklch(0.935 0.008 82);
+  --ink-2:        oklch(0.745 0.010 78);
+  --ink-3:        oklch(0.605 0.011 74);
+  --line:         oklch(0.330 0.010 68);
+  --line-2:       oklch(0.395 0.012 68);
+  --accent:       oklch(0.720 0.088 184);
+  --accent-2:     oklch(0.780 0.090 184);
+  --accent-ink:   oklch(0.800 0.085 184);
+  --accent-soft:  oklch(0.330 0.045 186);
+  --accent-line:  oklch(0.430 0.055 186);
+  --on-accent:    oklch(0.180 0.020 186);
+  --shadow-sm:    0 1px 2px rgba(0,0,0,.34);
+  --shadow-md:    0 6px 18px rgba(0,0,0,.40);
+  --shadow-lg:    0 24px 60px rgba(0,0,0,.55), 0 6px 18px rgba(0,0,0,.40);
+
+  --l0-fg: oklch(0.74 0.010 72);  --l0-bg: oklch(0.32 0.008 70);  --l0-line: oklch(0.40 0.010 70);
+  --l1-fg: oklch(0.78 0.045 245); --l1-bg: oklch(0.33 0.030 245); --l1-line: oklch(0.42 0.040 245);
+  --l2-fg: oklch(0.78 0.080 250); --l2-bg: oklch(0.33 0.045 250); --l2-line: oklch(0.43 0.060 250);
+  --l3-fg: oklch(0.80 0.085 186); --l3-bg: oklch(0.32 0.045 186); --l3-line: oklch(0.43 0.060 186);
+  --l4-fg: oklch(0.82 0.092 80);  --l4-bg: oklch(0.34 0.050 76);  --l4-line: oklch(0.45 0.065 76);
+  --l5-fg: oklch(0.78 0.110 44);  --l5-bg: oklch(0.34 0.055 42);  --l5-line: oklch(0.46 0.075 42);
+
+  --ok-fg: oklch(0.80 0.095 160); --ok-bg: oklch(0.32 0.050 162);
+  --warn-fg: oklch(0.82 0.100 76); --warn-bg: oklch(0.34 0.055 72);
+  --danger-fg: oklch(0.74 0.130 30); --danger-bg: oklch(0.34 0.060 32);
+}
+
+* { box-sizing: border-box; }
+
+.scr {
+  width: 100%; height: 100%;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+.serif { font-family: var(--font-display); font-weight: 500; letter-spacing: -0.01em; }
+.mono  { font-family: var(--font-mono); font-feature-settings: 'ss01'; }
+.tnum  { font-variant-numeric: tabular-nums; }
+
+/* ---- buttons ---- */
+.btn {
+  display: inline-flex; align-items: center; gap: 7px; justify-content: center;
+  font-family: var(--font-ui); font-weight: 600; font-size: 13.5px;
+  padding: 9px 15px; border-radius: var(--r-sm); border: 1px solid transparent;
+  cursor: pointer; white-space: nowrap; line-height: 1; transition: all .14s;
+}
+.btn-primary { background: var(--accent); color: var(--on-accent); box-shadow: var(--shadow-sm); }
+.btn-ghost   { background: var(--surface); color: var(--ink); border-color: var(--line-2); }
+.btn-soft    { background: var(--surface-2); color: var(--ink-2); border-color: var(--line); }
+.btn-danger  { background: transparent; color: var(--danger-fg); border-color: color-mix(in oklab, var(--danger-fg) 35%, transparent); }
+.btn-block   { width: 100%; padding: 12px 16px; font-size: 14px; }
+.btn-sm      { padding: 6px 11px; font-size: 12.5px; }
+
+/* ---- pills / badges ---- */
+.pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11.5px; font-weight: 600; letter-spacing: .01em;
+  padding: 3px 9px; border-radius: 999px; line-height: 1.3;
+  border: 1px solid var(--line-2); color: var(--ink-2); background: var(--surface-2);
+}
+.lv { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 700;
+  padding: 3px 9px 3px 7px; border-radius: 999px; line-height: 1.3; border: 1px solid; }
+.lv .dot { width: 6px; height: 6px; border-radius: 999px; background: currentColor; }
+.l0 { color: var(--l0-fg); background: var(--l0-bg); border-color: var(--l0-line); }
+.l1 { color: var(--l1-fg); background: var(--l1-bg); border-color: var(--l1-line); }
+.l2 { color: var(--l2-fg); background: var(--l2-bg); border-color: var(--l2-line); }
+.l3 { color: var(--l3-fg); background: var(--l3-bg); border-color: var(--l3-line); }
+.l4 { color: var(--l4-fg); background: var(--l4-bg); border-color: var(--l4-line); }
+.l5 { color: var(--l5-fg); background: var(--l5-bg); border-color: var(--l5-line); }
+
+.tag-ok { color: var(--ok-fg); background: var(--ok-bg); border:1px solid color-mix(in oklab, var(--ok-fg) 28%, transparent); }
+.tag-warn { color: var(--warn-fg); background: var(--warn-bg); border:1px solid color-mix(in oklab, var(--warn-fg) 28%, transparent); }
+.tag-danger { color: var(--danger-fg); background: var(--danger-bg); border:1px solid color-mix(in oklab, var(--danger-fg) 28%, transparent); }
+
+/* ---- surfaces ---- */
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md); }
+.divide { border-top: 1px solid var(--line); }
+.muted { color: var(--ink-3); }
+.sub { color: var(--ink-2); }
+
+/* selection control */
+.opt {
+  display: flex; gap: 10px; align-items: flex-start;
+  padding: 11px 13px; border: 1px solid var(--line-2); border-radius: var(--r-sm);
+  background: var(--surface); cursor: pointer; transition: all .14s;
+}
+.opt.on { border-color: var(--accent); background: var(--accent-soft); }
+.radio { width: 17px; height: 17px; border-radius: 999px; border: 1.5px solid var(--line-2);
+  flex: 0 0 auto; margin-top: 1px; display: grid; place-items: center; }
+.opt.on .radio { border-color: var(--accent); }
+.opt.on .radio::after { content: ''; width: 8px; height: 8px; border-radius: 999px; background: var(--accent); }
+
+.kbd { font-family: var(--font-mono); font-size: 11px; padding: 1px 5px; border-radius: 4px;
+  border: 1px solid var(--line-2); background: var(--surface-2); color: var(--ink-2); }
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 8px; }
