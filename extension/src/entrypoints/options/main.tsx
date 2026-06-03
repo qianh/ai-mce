@@ -1,2 +1,7 @@
 import { createRoot } from 'react-dom/client';
-createRoot(document.getElementById('root')!).render(<div>Console</div>);
+import { BrowserRouter } from 'react-router-dom';
+import App from './App';
+
+createRoot(document.getElementById('root')!).render(
+  <BrowserRouter><App /></BrowserRouter>
+);
