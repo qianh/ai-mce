@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html><head><title>ChatGPT Code Example</title></head>
+<body>
+  <div data-message-author-role="user">
+    <div class="markdown prose"><p>如何在 TypeScript 中实现 SHA-256？</p></div>
+  </div>
+  <div data-message-author-role="assistant">
+    <div class="markdown prose">
+      <p>可以使用 Web Crypto API：</p>
+      <pre><code class="language-typescript">async function sha256(text: string): Promise&lt;string&gt; {
+  const data = new TextEncoder().encode(text);
+  const buf = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
+}</code></pre>
+    </div>
+  </div>
+</body></html>
