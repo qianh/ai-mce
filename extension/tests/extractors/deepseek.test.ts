@@ -38,7 +38,7 @@ describe('DeepSeekExtractor', () => {
 
     expect(result.content.messages.length).toBeGreaterThanOrEqual(2);
     expect(result.content.messages[0]?.role).toBe('user');
-    expect(result.content.messages[0]?.content).toContain('流程图软件推荐对比');
+    expect(result.content.messages[0]?.content).toBe('流程图软件推荐');
     expect(result.content.messages[1]?.role).toBe('assistant');
     expect(result.content.messages[1]?.content).toContain('Draw.io');
     expect(result.extraction_quality.confidence).toBeGreaterThanOrEqual(0.6);
@@ -65,6 +65,18 @@ describe('DeepSeekExtractor', () => {
     const result = await extractor.extract(doc, 'https://chat.deepseek.com/a/chat/s/one');
 
     expect(result.extraction_quality.confidence).toBeLessThan(0.6);
+  });
+
+  it('uses actual user question from DOM, not conversation title', async () => {
+    const doc = loadFixture('deepseek-title-mismatch.html');
+    const result = await extractor.extract(doc, 'https://chat.deepseek.com/a/chat/s/title-mismatch');
+
+    expect(result.content.messages[0]?.role).toBe('user');
+    expect(result.content.messages[0]?.content).toBe('孔子最喜欢的弟子');
+    expect(result.content.messages[0]?.content).not.toContain('颜回');
+    expect(result.content.messages[1]?.role).toBe('assistant');
+    expect(result.content.messages[1]?.content).toContain('颜回');
+    expect(result.content.messages[1]?.content).not.toContain('这是一个常见问题');
   });
 
   it('does not reuse observer messages from a previous DeepSeek route', async () => {

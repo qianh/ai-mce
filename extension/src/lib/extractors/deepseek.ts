@@ -10,8 +10,6 @@ const EXPLICIT_MESSAGE_SELECTORS = [
   '[data-role="user"]',
   '[data-role="assistant"]',
   '[data-role="ai"]',
-  '[class*="message"][class*="user"]',
-  '[class*="message"][class*="assistant"]',
 ].join(',');
 
 const CONTENT_BLOCK_SELECTORS = [
@@ -19,6 +17,9 @@ const CONTENT_BLOCK_SELECTORS = [
   '[class*="ds-markdown"]',
   '[class*="markdown"]',
 ].join(',');
+
+const DS_MESSAGE_SELECTOR = '.ds-message';
+const DS_ASSISTANT_CONTENT_SELECTOR = '.ds-assistant-message-main-content';
 
 export class DeepSeekObserver {
   private observer: MutationObserver | null = null;
@@ -109,20 +110,34 @@ export class DeepSeekExtractor implements ConversationExtractor {
 
   async extract(document: Document, url: string): Promise<ExtractedConversation> {
     const observedNodes = deepseekObserver.getMessages(url, document);
-    const domNodes = Array.from(document.querySelectorAll(EXPLICIT_MESSAGE_SELECTORS));
-    const nodes = observedNodes.length > 0 ? observedNodes : domNodes;
+    const explicitNodes = Array.from(document.querySelectorAll(EXPLICIT_MESSAGE_SELECTORS));
+    const dsMessageNodes = Array.from(document.querySelectorAll(DS_MESSAGE_SELECTOR));
 
-    const messages = this.ensureConversationPrompt(
-      document,
-      nodes.length > 0 ? await this.nodesToMessages(nodes) : await this.fallbackMessages(document)
-    );
+    let extracted: ExtractedMessage[];
+    let method: string;
+
+    if (observedNodes.length > 0) {
+      extracted = await this.nodesToMessages(observedNodes);
+      method = 'dom_attr';
+    } else if (explicitNodes.length > 0) {
+      extracted = await this.nodesToMessages(explicitNodes);
+      method = 'dom_attr';
+    } else if (dsMessageNodes.length > 0) {
+      extracted = this.extractFromDsMessages(dsMessageNodes);
+      method = 'ds_message';
+    } else {
+      extracted = await this.fallbackMessages(document);
+      method = 'article';
+    }
+
+    const messages = this.ensureConversationPrompt(document, extracted);
     const allText = messages.map((m) => `${m.role}: ${m.content}`).join('\n\n');
     const hash = await contentHash(allText);
     const msgHashes = await Promise.all(
       messages.map((m) => messageHash(m.role, m.content, m.index))
     );
     const conversationId = this.extractConversationId(url);
-    const totalMessageCount = domNodes.length;
+    const totalMessageCount = explicitNodes.length;
     const isPartial = observedNodes.length > 0 && messages.length < totalMessageCount;
 
     return {
@@ -141,7 +156,7 @@ export class DeepSeekExtractor implements ConversationExtractor {
       },
       extraction_quality: {
         confidence: this.calcConfidence(messages, isPartial),
-        method: observedNodes.length > 0 ? 'dom_attr' : 'article',
+        method,
         warnings: [
           ...(messages.length < 2 ? ['few_messages_detected'] : []),
           ...(isPartial ? ['partial_observer_capture'] : []),
@@ -191,6 +206,16 @@ export class DeepSeekExtractor implements ConversationExtractor {
         index,
       }))
       .filter((message) => message.content.trim().length > 0);
+  }
+
+  private extractFromDsMessages(dsMessages: Element[]): ExtractedMessage[] {
+    return dsMessages
+      .map((msg, index): ExtractedMessage => {
+        const assistantContent = msg.querySelector(DS_ASSISTANT_CONTENT_SELECTOR);
+        const node = assistantContent ?? msg;
+        return { role: assistantContent ? 'assistant' : 'user', content: this.extractText(node), index };
+      })
+      .filter((m) => m.content.trim().length > 0);
   }
 
   private compactNodes(nodes: Element[]): Element[] {
