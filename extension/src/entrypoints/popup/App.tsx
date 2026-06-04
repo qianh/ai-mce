@@ -5,6 +5,7 @@ import DegradedScreen from './screens/DegradedScreen';
 import SensitiveScreen from './screens/SensitiveScreen';
 import SuccessScreen from './screens/SuccessScreen';
 import FailScreen from './screens/FailScreen';
+import { getPagePlatform, type PagePlatformRoute } from './platform';
 import '../../assets/tokens.css';
 
 type Screen = 'loading' | 'waiting_id' | 'save' | 'degraded' | 'sensitive' | 'success' | 'fail';
@@ -18,14 +19,15 @@ export default function App() {
   useEffect(() => {
     chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
       if (!tab?.id) { setScreen('degraded'); return; }
+      const route = getPagePlatform(tab.url);
+      if (!route) { setScreen('degraded'); return; }
 
       // For ChatGPT: check conversationId first; if content script isn't running yet, fall through to extract anyway
-      const isChatGPT = tab.url?.includes('chatgpt.com');
-      if (isChatGPT) {
+      if (route.requiresConversationId) {
         chrome.tabs.sendMessage(tab.id, { type: 'GET_CONVERSATION_ID' }, (res) => {
           if (chrome.runtime.lastError) {
             // Content script not injected yet — try extracting directly (will inject if needed)
-            extractConversation(tab.id!);
+            extractConversation(tab.id!, route);
             return;
           }
           if (!res?.conversationId) {
@@ -33,15 +35,15 @@ export default function App() {
             setScreen('waiting_id');
             return;
           }
-          extractConversation(tab.id!);
+          extractConversation(tab.id!, route);
         });
       } else {
-        extractConversation(tab.id);
+        extractConversation(tab.id, route);
       }
     });
   }, []);
 
-  const extractConversation = (tabId: number) => {
+  const extractConversation = (tabId: number, route: PagePlatformRoute) => {
     const handleResult = (result: Record<string, unknown> | undefined) => {
       if (chrome.runtime.lastError || !result) { setScreen('degraded'); return; }
       if (result['type'] === 'EXTRACTION_RESULT') {
@@ -57,7 +59,7 @@ export default function App() {
     chrome.tabs.sendMessage(tabId, { type: 'EXTRACT_CONVERSATION' }, (result) => {
       if (chrome.runtime.lastError || !result) {
         chrome.scripting.executeScript(
-          { target: { tabId }, files: ['content-scripts/chatgpt.js'] },
+          { target: { tabId }, files: [route.scriptFile] },
           () => {
             if (chrome.runtime.lastError) { setScreen('degraded'); return; }
             chrome.tabs.sendMessage(tabId, { type: 'EXTRACT_CONVERSATION' }, handleResult);

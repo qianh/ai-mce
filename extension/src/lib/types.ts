@@ -26,7 +26,7 @@ export interface ExtractedConversation {
   schema_version: string;
   extractor_version: string;
   source: {
-    platform: 'chatgpt' | 'claude' | 'gemini' | 'perplexity' | 'generic_web';
+    platform: 'chatgpt' | 'deepseek' | 'claude' | 'gemini' | 'perplexity' | 'generic_web';
     url: string;
     browser_title: string;
     captured_at: string;

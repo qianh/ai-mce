@@ -7,6 +7,7 @@ declare module "wxt/browser" {
     | "/"
     | "/background.js"
     | "/content-scripts/chatgpt.js"
+    | "/content-scripts/deepseek.js"
     | "/offscreen.html"
     | "/options.html"
     | "/popup.html"

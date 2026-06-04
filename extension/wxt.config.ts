@@ -16,7 +16,7 @@ export default defineConfig({
       'downloads',
       'offscreen',
     ],
-    host_permissions: ['https://chatgpt.com/*'],
+    host_permissions: ['https://chatgpt.com/*', 'https://chat.deepseek.com/*'],
     action: { default_popup: 'popup.html', default_title: 'Save to AI Memory' },
     options_page: 'options.html',
     content_security_policy: {

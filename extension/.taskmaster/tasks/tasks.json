@@ -1,0 +1,129 @@
+{
+  "master": {
+    "tasks": [
+      {
+        "id": "1",
+        "title": "Add DeepSeek platform support to type definitions and manifest",
+        "description": "Update type definitions to include 'deepseek' as a valid platform in ExtractedConversation.source.platform. Add DeepSeek host permissions to wxt.config.ts manifest to allow content script injection on chat.deepseek.com.",
+        "details": "Modify src/lib/types.ts line 29 to extend the platform union type from `'chatgpt' | 'claude' | 'gemini' | 'perplexity' | 'generic_web'` to include `'deepseek'`. Update wxt.config.ts line 19 to add 'https://chat.deepseek.com/*' to host_permissions array. Ensure TypeScript compiles without errors after type changes.",
+        "testStrategy": "Typecheck project with `bun run build` or `bunx tsc`. Verify manifest.json generated from wxt.config.ts includes the new host permission. No runtime test needed at this stage.",
+        "priority": "high",
+        "dependencies": [],
+        "status": "done",
+        "subtasks": [],
+        "updatedAt": "2026-06-04T03:49:31.386Z"
+      },
+      {
+        "id": "2",
+        "title": "Create DeepSeek extractor implementation",
+        "description": "Implement a new DeepSeekExtractor class following the ConversationExtractor interface pattern, with DOM-based message extraction, conversation ID parsing from URL, fingerprint generation, and confidence scoring specific to DeepSeek's page structure.",
+        "details": "Create src/lib/extractors/deepseek.ts. Implement class with canHandle() method checking 'chat.deepseek.com' in URL. Parse conversation_id from URL pattern (e.g., /chat/{id}). Implement extract() method using stable DOM selectors for message containers, role detection, and text extraction. Generate fingerprint as `deepseek:{id}` if ID found, else `deepseek:{url}`. Calculate confidence based on message count and extraction method. Follow ChatGPTExtractor pattern (lines 63-152) for structure. Include EXTRACTOR_VERSION and SCHEMA_VERSION constants from base.ts. Test with conservative selectors to degrade gracefully to generic extraction if DOM unstable.",
+        "testStrategy": "Unit test with fixtures: create fixtures/deepseek-normal.html, fixtures/deepseek-with-code.html. Test canHandle(), message extraction count, role identification, confidence scoring, conversation ID parsing, and fingerprint generation. Verify confidence < 0.6 for single message. Create deepseek.test.ts mirroring chatgpt.test.ts structure.",
+        "priority": "high",
+        "dependencies": [
+          "1"
+        ],
+        "status": "done",
+        "subtasks": [],
+        "updatedAt": "2026-06-04T03:49:32.902Z"
+      },
+      {
+        "id": "3",
+        "title": "Create DeepSeek content script",
+        "description": "Implement content script for chat.deepseek.com that mirrors ChatGPT behavior: start DOM observer, patch history methods, handle EXTRACT_CONVERSATION and GET_CONVERSATION_ID messages, and optionally support auto-save if settings allow.",
+        "details": "Create src/entrypoints/content/deepseek.ts using defineContentScript with matches: ['https://chat.deepseek.com/*']. Follow src/entrypoints/content/chatgpt.ts pattern (lines 1-71) but adapt for DeepSeek. Start deepseekObserver (to be created in next task) on init. Parse conversation ID from URL using deepseekExtractor.extractConversationId(). Handle EXTRACT_CONVERSATION, GET_CONVERSATION_ID, and GET_SELECTION messages identically to ChatGPT. Implement auto-save timer logic if report_mode='auto' (lines 31-46). Use detectSensitive() before saving.",
+        "testStrategy": "Integration test via popup: verify EXTRACT_CONVERSATION message returns ExtractedConversation with source.platform='deepseek'. Verify GET_CONVERSATION_ID returns correct ID when available. Manual browser testing on chat.deepseek.com to confirm script injection and message handling work correctly.",
+        "priority": "high",
+        "dependencies": [
+          "2"
+        ],
+        "status": "done",
+        "subtasks": [],
+        "updatedAt": "2026-06-04T03:49:34.395Z"
+      },
+      {
+        "id": "4",
+        "title": "Create DeepSeek observer for real-time message capture",
+        "description": "Implement a MutationObserver-based DeepSeekObserver class to track and maintain message elements in the page, similar to ChatGPTObserver pattern, for real-time conversation capture as user interacts with DeepSeek.",
+        "details": "Create DeepSeekObserver class in src/lib/extractors/deepseek.ts (or separate file src/lib/observers/deepseek.ts if modularization preferred). Follow ChatGPTObserver pattern (lines 6-61 in chatgpt.ts) but adapt DOM selectors to DeepSeek's message container structure. Implement start(), stop(), reset(), getMessages(), scanNode(), addNode() methods. Find stable data attributes or classes identifying message containers. Export singleton instance `deepseekObserver`. Use same index-based tracking as ChatGPT to handle partial captures.",
+        "testStrategy": "Unit test with JSDOM and DeepSeek HTML fixtures. Verify observer correctly tracks added message elements. Test reset() clears tracking. Test partial capture detection (observed messages < total messages). Integration test in content script to ensure observer receives real mutations.",
+        "priority": "high",
+        "dependencies": [
+          "2"
+        ],
+        "status": "done",
+        "subtasks": [],
+        "updatedAt": "2026-06-04T03:49:35.915Z"
+      },
+      {
+        "id": "5",
+        "title": "Update Popup to dynamically detect platform and route extraction",
+        "description": "Modify Popup App component to detect current page platform (chatgpt.com vs chat.deepseek.com vs other) and inject the correct content script file, rather than hardcoding 'content-scripts/chatgpt.js'. Support both ChatGPT and DeepSeek extraction flows.",
+        "details": "Modify src/entrypoints/popup/App.tsx (lines 19-70, extractConversation function). Replace hardcoded platform detection at line 23 (`isChatGPT = url.includes('chatgpt.com')`) with platform detection logic covering ChatGPT, DeepSeek, and fallback to generic. At line 59, replace hardcoded file injection `'content-scripts/chatgpt.js'` with dynamic selection: choose 'content-scripts/deepseek.js' for deepseek.com URLs, 'content-scripts/chatgpt.js' for chatgpt.com, or skip if already running. For ChatGPT, keep GET_CONVERSATION_ID check (lines 24-37); for DeepSeek, always proceed to extract (similar to line 39). Ensure both extractors return ExtractedConversation format without errors.",
+        "testStrategy": "Unit test with mocked chrome.tabs API. Test platform detection regex for multiple URLs. Test correct script file selection per platform. Component test: render Popup with different tab.url values and verify correct extraction message path. Test fallback for unknown platforms.",
+        "priority": "high",
+        "dependencies": [
+          "3"
+        ],
+        "status": "done",
+        "subtasks": [],
+        "updatedAt": "2026-06-04T03:49:37.417Z"
+      },
+      {
+        "id": "6",
+        "title": "Update CaptureList to add platform filtering and title search UI",
+        "description": "Enhance CaptureList component to display platform badges/tags, provide platform filter dropdown, add title fuzzy search input, and support combined filtering. Update empty state messaging to distinguish 'no results' from 'no captures'.",
+        "details": "Modify src/entrypoints/options/pages/CaptureList.tsx (lines 7-50). Add state for `selectedPlatform` (string | null), `searchTitle` (string). Add UI controls: dropdown for platform filtering with options ['all', 'chatgpt', 'deepseek'], text input for title search. Implement filter logic: (1) platform filter on capture.source_platform === selectedPlatform if selected; (2) title search as case-insensitive includes match on capture.source_title. Apply both filters (intersection) if both active. Update render: show platform badge next to source_platform in each row (e.g., 'ChatGPT', 'DeepSeek'). Add distinct empty state messages: 'No results match your filters' vs 'No captures yet'. Update capture count display to show filtered count vs total (optional). Ensure no results state is reached when filters find 0 matches, not when DB is empty.",
+        "testStrategy": "Component test: render CaptureList with mock captures including both ChatGPT and DeepSeek. Test platform filter: select 'deepseek', verify only deepseek captures shown. Test title search: enter partial title, verify case-insensitive match. Test combined filters: filter platform AND search title, verify correct intersection. Test empty states: no captures vs filters result in 0. Test count updates. Regression test: existing captures display unchanged when no filters applied.",
+        "priority": "high",
+        "dependencies": [],
+        "status": "done",
+        "subtasks": [],
+        "updatedAt": "2026-06-04T03:49:38.915Z"
+      },
+      {
+        "id": "7",
+        "title": "Implement idempotent upsert logic using DeepSeek conversation ID",
+        "description": "Update background.ts SAVE_REQUEST handler to detect DeepSeek platform and use conversation_id-based fingerprinting for deduplication. Ensure same conversation ID on multiple saves updates the same capture record without duplicates.",
+        "details": "Modify src/entrypoints/background.ts (lines 70-88, handleSave function). Current logic: if conversation.metadata?.conversation_id exists, call upsertCapture(); else check duplicate by content_hash. This already supports the DeepSeek flow IF metadata.conversation_id is populated. Verify src/lib/extractors/deepseek.ts populates metadata.conversation_id when ID found. Verify upsertCapture() in src/db/repos/captures.ts (lines 39-63) uses source_fingerprint (which is set to `deepseek:{id}` from extractor) as the upsert key. Test: save DeepSeek conversation twice with same ID, verify second save updates first record (same capture_id), not creates duplicate.",
+        "testStrategy": "Unit test: mock saveRequest with deepseek platform and conversation_id. Verify handleSave calls upsertCapture(). Mock DB queries to confirm upsert by fingerprint. Integration test: simulate two SAVE_REQUEST messages with same deepseek:{id} fingerprint, verify only one Capture record exists after both. Regression test: ChatGPT flow still upserts by conversation_id and content_hash fallback works.",
+        "priority": "high",
+        "dependencies": [
+          "2",
+          "5"
+        ],
+        "status": "done",
+        "subtasks": [],
+        "updatedAt": "2026-06-04T03:49:40.405Z"
+      },
+      {
+        "id": "8",
+        "title": "Add comprehensive tests for DeepSeek integration and verify all AC/NFR criteria",
+        "description": "Create unit and integration tests covering DeepSeek extractor, content script, observer, popup routing, and CaptureList filtering. Verify all acceptance criteria (AC-001 through AC-008) and non-functional requirements (NFR-001, NFR-002) are met. Ensure ChatGPT regression tests remain passing.",
+        "details": "Create tests/extractors/deepseek.test.ts: test canHandle(), message extraction, role detection, conversation ID extraction, fingerprint generation, confidence scoring. Create tests/content/deepseek.test.ts: test message handling and observer integration (via JSDOM simulation). Enhance tests/options/CaptureList.test.tsx: add test cases for platform filter dropdown rendering, title search input, filtering by platform, filtering by title, combined filters, empty state distinction. Create tests/lib/filters.test.ts (if extracting filter logic to utility): test platform filter, title search, and combined logic. Verify ChatGPT extractor tests (tests/extractors/chatgpt.test.ts) and CaptureList existing tests still pass. Test that DB schema has no new migrations (NFR-001). Test that existing ChatGPT captures render correctly in filtered list.",
+        "testStrategy": "Run `bun test` to execute full test suite. Verify all tests pass. Check coverage for new deepseek files (>80% target). Manual acceptance test: On chat.deepseek.com, save conversation, verify source_platform='deepseek' in DB. On CaptureList, verify DeepSeek capture shows correct badge. Filter by 'DeepSeek', verify only deepseek captures shown. Search by title, verify case-insensitive match. Test combination of both filters. Test that clearing filters shows all again. Test deduplication: save same conversation twice, verify count remains 1. Verify ChatGPT save still works.",
+        "priority": "high",
+        "dependencies": [
+          "2",
+          "3",
+          "4",
+          "5",
+          "6",
+          "7"
+        ],
+        "status": "done",
+        "subtasks": [],
+        "updatedAt": "2026-06-04T03:49:41.927Z"
+      }
+    ],
+    "metadata": {
+      "version": "1.0.0",
+      "lastModified": "2026-06-04T03:49:41.927Z",
+      "taskCount": 8,
+      "completedCount": 8,
+      "tags": [
+        "master"
+      ]
+    }
+  }
+}

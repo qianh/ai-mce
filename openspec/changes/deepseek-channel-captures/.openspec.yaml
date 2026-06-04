@@ -1,0 +1,4 @@
+schema: spec-driven
+created: 2026-06-04
+goal: AI Memory Capture supports saving DeepSeek conversations and filtering
+  captures by channel and title.
