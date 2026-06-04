@@ -4,27 +4,14 @@ import type { Settings as SettingsType } from '../../../lib/types';
 
 export default function Settings() {
   const [settings, setSettings] = useState<SettingsType | null>(null);
-  const [apiKey, setApiKey] = useState('');
-  const [validating, setValidating] = useState(false);
-  const [keyStatus, setKeyStatus] = useState<'idle' | 'ok' | 'fail'>('idle');
 
-  useEffect(() => {
-    getSettings().then((s) => { setSettings(s); setApiKey(s.claude_api_key ?? ''); });
-  }, []);
+  useEffect(() => { getSettings().then(setSettings); }, []);
 
-  const validateAndSave = async () => {
-    if (!apiKey.trim()) return;
-    setValidating(true);
-    setKeyStatus('idle');
-    chrome.runtime.sendMessage({ type: 'VALIDATE_API_KEY', key: apiKey }, async (result: { ok: boolean }) => {
-      if (result?.ok) {
-        await setSetting('claude_api_key', apiKey);
-        setKeyStatus('ok');
-      } else {
-        setKeyStatus('fail');
-      }
-      setValidating(false);
-    });
+  const toggleReportMode = async () => {
+    if (!settings) return;
+    const next = settings.report_mode === 'auto' ? 'manual' : 'auto';
+    await setSetting('report_mode', next);
+    setSettings((s) => s ? { ...s, report_mode: next } : s);
   };
 
   const exportDb = () => {
@@ -45,32 +32,36 @@ export default function Settings() {
 
   if (!settings) return <div style={{ color: 'var(--ink-3)', padding: 20 }}>加载中…</div>;
 
+  const isAuto = settings.report_mode === 'auto';
+
   return (
     <div style={{ maxWidth: 600 }}>
       <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 24 }}>设置</div>
 
       <div className="card" style={{ padding: 20, marginBottom: 16 }}>
-        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Claude API Key</div>
-        <div style={{ fontSize: 12.5, color: 'var(--ink-3)', marginBottom: 14, lineHeight: 1.5 }}>
-          你自己的 Anthropic API Key，用于生成摘要和提取记忆。存储在本地 OPFS 数据库，不上传任何地方。
+        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>上报模式</div>
+        <div style={{ fontSize: 12.5, color: 'var(--ink-3)', marginBottom: 16, lineHeight: 1.5 }}>
+          自动模式：AI 每次回复结束后自动保存到本地，无需手动点击。<br />
+          手动模式（默认）：点击插件图标后手动确认保存。
         </div>
-        <input
-          type="password"
-          value={apiKey}
-          onChange={(e) => { setApiKey(e.target.value); setKeyStatus('idle'); }}
-          placeholder="sk-ant-api03-..."
-          style={{ width: '100%', padding: '10px 13px', borderRadius: 7, border: '1px solid var(--line-2)', background: 'var(--surface)', fontFamily: 'var(--font-mono)', fontSize: 13, marginBottom: 12, boxSizing: 'border-box' }}
-        />
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <button
-            onClick={validateAndSave}
-            disabled={validating || !apiKey.trim()}
-            style={{ padding: '9px 16px', borderRadius: 7, border: 'none', background: 'var(--accent)', color: 'var(--on-accent)', cursor: validating ? 'wait' : 'pointer', fontFamily: 'var(--font-ui)', fontWeight: 600, fontSize: 13, opacity: (!apiKey.trim() || validating) ? 0.6 : 1 }}
-          >
-            {validating ? '验证中…' : '验证并保存'}
-          </button>
-          {keyStatus === 'ok' && <span style={{ color: 'var(--ok-fg)', fontSize: 13, fontWeight: 600 }}>✓ 已连接</span>}
-          {keyStatus === 'fail' && <span style={{ color: 'var(--danger-fg)', fontSize: 13, fontWeight: 600 }}>✗ Key 无效，请检查</span>}
+        <div
+          onClick={toggleReportMode}
+          style={{ display: 'flex', alignItems: 'center', gap: 14, cursor: 'pointer', userSelect: 'none' }}
+        >
+          <div style={{
+            width: 44, height: 24, borderRadius: 99, position: 'relative', flexShrink: 0,
+            background: isAuto ? 'var(--accent)' : 'var(--line-2)',
+            transition: 'background .15s',
+          }}>
+            <div style={{
+              position: 'absolute', top: 3, left: isAuto ? 23 : 3, width: 18, height: 18,
+              borderRadius: 99, background: 'white',
+              transition: 'left .15s',
+            }} />
+          </div>
+          <span style={{ fontSize: 13.5, fontWeight: 600, color: isAuto ? 'var(--ink)' : 'var(--ink-2)' }}>
+            {isAuto ? '自动上报' : '手动上报'}
+          </span>
         </div>
       </div>
 

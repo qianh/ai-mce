@@ -1,13 +1,11 @@
 import { Routes, Route, NavLink } from 'react-router-dom';
 import CaptureList from './pages/CaptureList';
 import CaptureDetail from './pages/CaptureDetail';
-import ReviewInbox from './pages/ReviewInbox';
 import Settings from './pages/Settings';
 import '../../assets/tokens.css';
 
 const NAV = [
   { to: '/', label: 'Captures', exact: true },
-  { to: '/review', label: 'Review Inbox' },
   { to: '/settings', label: '设置' },
 ];
 
@@ -38,7 +36,6 @@ export default function App() {
         <Routes>
           <Route path="/" element={<CaptureList />} />
           <Route path="/capture/:id" element={<CaptureDetail />} />
-          <Route path="/review" element={<ReviewInbox />} />
           <Route path="/settings" element={<Settings />} />
         </Routes>
       </main>

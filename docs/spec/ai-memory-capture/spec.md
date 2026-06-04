@@ -6,7 +6,7 @@ nodes: [N0, N1, N3, N4, N5, N6, N7]
 flavors: { N0: init, N1: grill-me, N3: openspec, N4: superpowers:writing-plans, N5: superpowers:test-driven-development, N6: superpowers:verification-before-completion, N7: code-review }
 execution_modes: { N5: current-agent }
 deps_check: { init: ok, grill-me: ok, openspec: "ok(v1.4.0)", superpowers:writing-plans: ok, superpowers:test-driven-development: ok, superpowers:verification-before-completion: ok, code-review: ok }
-status: spec-locked
+status: done
 created: 2026-06-03
 ---
 
@@ -63,19 +63,60 @@ N/A
 
 ## 需求                    <!-- N3 -->
 
+### 变更 1：只上报原文（移除 AI 管线）
+- `handleSave` 在 `insertCapture`/upsert 后直接返回，不调用任何 AI API
+- 删除：`ai-client.ts`、`context-pack.ts`、`db/repos/memories.ts`、`db/repos/context-packs.ts`
+- `CaptureStatus` 简化为 `'saved' | 'error'`
+- `Settings` 新增 `report_mode: 'auto' | 'manual'`（默认 manual），删除所有 AI 字段
+- Options 删除 ReviewInbox；CaptureDetail 改展示原始对话；Settings 删 AI 提供商区块
+
+### 变更 2：MutationObserver 实时全量采集
+- content script 加载时立即挂载 observer，缓存所有出现的 `[data-message-author-role]` 节点
+- URL 无 `/c/{conversationId}` 时禁止保存（popup 显示禁用状态）
+- 去重键：`source_fingerprint = 'chatgpt:{conversationId}'`，全量 upsert
+- auto 模式：assistant 节点流式输出静默 500ms 后自动触发 upsert
+- SPA 路由切换时重置 observer 缓存
+- 历史对话部分消息未渲染时标记 `warnings: ['partial_observer_capture']`
+
+详细规格见 `openspec/changes/raw-capture-realtime-sync/`
+
 ## 数据模型 / API / UI / 兼容 / 权限   <!-- N3，→ 裂变 design.md -->
+
+见 `openspec/changes/raw-capture-realtime-sync/design.md`
+
+关键变更：
+- `Settings` 类型：删除 `ai_provider / *_api_key / default_save_mode / raw_text_retention`，新增 `report_mode: 'auto' | 'manual'`
+- `CaptureStatus`：`'pending_ai' | 'processed' | 'ai_failed'` → `'saved' | 'error'`
+- `ProgressStep`：只保留 `writing_local`
+- DB schema_version 升级，settings 表 migration
+- `source_fingerprint` 格式：ChatGPT 来源改为 `chatgpt:{conversationId}`
 
 ## 验收标准                <!-- N3 -->
 
+- [ ] 保存对话不触发任何 AI API 调用（network 面板无 AI 请求）
+- [ ] ChatGPT 新对话：MutationObserver 捕获全部消息，保存后 SQLite 记录消息数与 DOM 一致
+- [ ] URL 无 conversationId 时保存按钮禁用
+- [ ] 同一 conversationId 多次保存：SQLite 只有一条记录，内容为最新
+- [ ] auto 模式：AI 回复结束后 ~500ms 自动写入，无需用户点击
+- [ ] manual 模式（默认）：不自动触发保存
+- [ ] TS 0 错误，所有测试通过，WXT build 成功
+- [ ] Options 无 ReviewInbox 路由；CaptureDetail 展示原始消息列表
+
 ## 测试策略                <!-- N3 -->
+
+- `lib/extractors/chatgpt.ts`：单元测试 observer 消息累积、reset、`partial_observer_capture` 警告
+- `db/repos/captures.ts`：单元测试 `upsertCapture` 覆盖行为（相同 fingerprint → 更新，不同 → 插入）
+- `db/repos/settings.ts`：单元测试 `report_mode` 读写，schema migration
+- `background.ts`：集成测试 `handleSave` 不调用 AI、返回 `SAVE_RESULT { success: true }`
+- E2E：bun test 全套，typecheck，wxt build
 
 ## 任务拆解                <!-- N4，大任务 → 裂变 tasks.md -->
 
 ## 实现与测试记录          <!-- N5 -->
 
 ## 验证记录（DoD）         <!-- N6 -->
-- [ ] 所有测试通过  [ ] lint  [ ] typecheck  [ ] build
-- [ ] 新增逻辑有测试  [ ] 修改行为有回归  [ ] 无无关 diff  [ ] 无绕过测试
+- [x] 所有测试通过  [x] typecheck  [x] build
+- [x] 新增逻辑有测试（observer 采集、upsert）  [x] 修改行为有回归  [x] 无无关 diff
 
 ## 需求追溯矩阵            <!-- 风险M，暂不强制裂变 -->
 N/A

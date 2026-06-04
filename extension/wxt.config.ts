@@ -14,10 +14,14 @@ export default defineConfig({
       'contextMenus',
       'unlimitedStorage',
       'downloads',
+      'offscreen',
     ],
     host_permissions: ['https://chatgpt.com/*'],
     action: { default_popup: 'popup.html', default_title: 'Save to AI Memory' },
     options_page: 'options.html',
+    content_security_policy: {
+      extension_pages: "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'",
+    },
   },
   vite: () => ({
     optimizeDeps: { exclude: ['wa-sqlite'] },

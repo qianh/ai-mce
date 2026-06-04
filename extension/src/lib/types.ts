@@ -64,24 +64,9 @@ export interface SensitiveResult {
   matches: SensitiveMatch[];
 }
 
-// ─── Memory Level ─────────────────────────────────────────────────────────────
-
-export type MemoryLevel = 'L0' | 'L1' | 'L2' | 'L3' | 'L4' | 'L5';
-
-export interface MemoryCandidate {
-  content: string;
-  level: MemoryLevel;
-  confidence: number;
-  reason: string;
-  requires_confirmation: boolean;
-  ttl_days?: number;
-  source_message_indexes: number[];
-}
-
 // ─── DB Entities ──────────────────────────────────────────────────────────────
 
-export type CaptureStatus = 'pending_ai' | 'processed' | 'ai_failed';
-export type CandidateStatus = 'pending' | 'confirmed' | 'ignored' | 'degraded';
+export type CaptureStatus = 'saved' | 'error';
 
 export interface Capture {
   id: string;
@@ -99,37 +84,12 @@ export interface SourceDocument {
   capture_id: string;
   title: string;
   normalized_text: string | null;
-  summary: string | null;
   message_count: number;
-  language: string | null;
-  created_at: string;
-}
-
-export interface MemoryCandidateRow {
-  id: string;
-  capture_id: string;
-  content: string;
-  level: MemoryLevel;
-  confidence: number;
-  reason: string;
-  status: CandidateStatus;
-  source_message_indexes: string;
-  confirmed_at: string | null;
-  created_at: string;
-}
-
-export interface ContextPack {
-  id: string;
-  capture_id: string;
-  project_name: string;
-  content_markdown: string;
   created_at: string;
 }
 
 export interface Settings {
-  claude_api_key: string | null;
-  default_save_mode: 'summary_and_memory' | 'full_text' | 'notes_only';
-  raw_text_retention: 'delete_after_processing' | '7_days' | '30_days' | 'forever';
+  report_mode: 'auto' | 'manual';
   schema_version: number;
 }
 
@@ -138,21 +98,15 @@ export interface Settings {
 export interface SaveRequest {
   type: 'SAVE_REQUEST';
   conversation: ExtractedConversation;
-  save_mode: Settings['default_save_mode'];
-  user_note?: string;
 }
 
 export type ProgressStep =
-  | { step: 'writing_local'; status: 'done' }
-  | { step: 'generating_summary'; status: 'running' | 'done' | 'failed' }
-  | { step: 'extracting_memories'; status: 'running' | 'done' | 'failed' }
-  | { step: 'building_context_pack'; status: 'running' | 'done' | 'failed' };
+  | { step: 'writing_local'; status: 'done' | 'failed' };
 
 export interface ProgressUpdate {
   type: 'PROGRESS_UPDATE';
   capture_id: string;
   step: ProgressStep;
-  result?: { memory_count?: number; context_pack_id?: string };
 }
 
 export interface SaveResult {

@@ -3,6 +3,63 @@ import type { ExtractedConversation, ExtractedMessage, MessageRole } from '../ty
 import { EXTRACTOR_VERSION, SCHEMA_VERSION } from './base';
 import { contentHash, messageHash } from '../hash';
 
+export class ChatGPTObserver {
+  private observer: MutationObserver | null = null;
+  private messageMap = new Map<number, Element>();
+  private nextIndex = 0;
+
+  start(document: Document): void {
+    if (this.observer) return;
+    this.observer = new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        for (const node of mutation.addedNodes) {
+          if (node.nodeType === Node.ELEMENT_NODE) {
+            this.scanNode(node as Element);
+          }
+        }
+      }
+    });
+    this.observer.observe(document.body, { childList: true, subtree: true });
+    // Capture already-rendered nodes on start
+    document.querySelectorAll('[data-message-author-role]').forEach((el) => this.addNode(el));
+  }
+
+  stop(): void {
+    this.observer?.disconnect();
+    this.observer = null;
+  }
+
+  reset(): void {
+    this.stop();
+    this.messageMap.clear();
+    this.nextIndex = 0;
+  }
+
+  getMessages(): Element[] {
+    return Array.from(this.messageMap.values());
+  }
+
+  private scanNode(root: Element): void {
+    if (root.hasAttribute('data-message-author-role')) {
+      this.addNode(root);
+    }
+    root.querySelectorAll('[data-message-author-role]').forEach((el) => this.addNode(el));
+  }
+
+  private addNode(el: Element): void {
+    // Use existing index slot if already tracked (same DOM node)
+    for (const [idx, existing] of this.messageMap) {
+      if (existing === el) {
+        this.messageMap.set(idx, el);
+        return;
+      }
+    }
+    this.messageMap.set(this.nextIndex++, el);
+  }
+}
+
+export const chatgptObserver = new ChatGPTObserver();
+
 export class ChatGPTExtractor implements ConversationExtractor {
   platform = 'chatgpt' as const;
 
@@ -11,13 +68,23 @@ export class ChatGPTExtractor implements ConversationExtractor {
   }
 
   async extract(document: Document, url: string): Promise<ExtractedConversation> {
-    const messages = await this.extractMessages(document);
+    const observedNodes = chatgptObserver.getMessages();
+    const domNodes = Array.from(document.querySelectorAll('[data-message-author-role]'));
+    const nodes = observedNodes.length > 0 ? observedNodes : domNodes;
+
+    const messages = await this.nodesToMessages(nodes);
     const allText = messages.map((m) => `${m.role}: ${m.content}`).join('\n\n');
     const hash = await contentHash(allText);
     const msgHashes = await Promise.all(
       messages.map((m) => messageHash(m.role, m.content, m.index))
     );
-    const confidence = this.calcConfidence(messages);
+
+    const conversationTurnCount = document.querySelectorAll('[data-testid^="conversation-turn-"]').length;
+    const isPartial = observedNodes.length > 0 && messages.length < conversationTurnCount;
+    const confidence = this.calcConfidence(messages, isPartial);
+
+    const conversationId = this.extractConversationId(url);
+    const fingerprint = conversationId ? `chatgpt:${conversationId}` : `chatgpt:${url}`;
 
     return {
       schema_version: SCHEMA_VERSION,
@@ -35,48 +102,36 @@ export class ChatGPTExtractor implements ConversationExtractor {
       },
       extraction_quality: {
         confidence,
-        method: messages.length > 0 ? 'dom_attr' : 'article',
-        warnings: messages.length < 2 ? ['few_messages_detected'] : [],
+        method: observedNodes.length > 0 ? 'dom_attr' : 'article',
+        warnings: [
+          ...(messages.length < 2 ? ['few_messages_detected'] : []),
+          ...(isPartial ? ['partial_observer_capture'] : []),
+        ],
         message_count: messages.length,
         empty_message_count: messages.filter((m) => !m.content.trim()).length,
       },
       hashes: {
         content_hash: hash,
         message_hashes: msgHashes,
-        source_fingerprint: `chatgpt:${url}`,
+        source_fingerprint: fingerprint,
       },
+      metadata: conversationId ? { conversation_id: conversationId } : undefined,
     };
   }
 
-  private async extractMessages(document: Document): Promise<ExtractedMessage[]> {
-    // Strategy 1: data-message-author-role attribute
-    const roleNodes = document.querySelectorAll('[data-message-author-role]');
-    if (roleNodes.length > 0) {
-      return Array.from(roleNodes).flatMap((node, i) => {
-        const role = node.getAttribute('data-message-author-role') as MessageRole;
-        const content = this.extractText(node);
-        return content.trim() ? [{ role, content, index: i }] : [];
-      });
-    }
+  extractConversationId(url: string): string | null {
+    const match = url.match(/\/c\/([a-f0-9-]{36})/i);
+    return match?.[1] ?? null;
+  }
 
-    // Strategy 2: conversation-turn testids
-    const turns = document.querySelectorAll('[data-testid^="conversation-turn-"]');
-    const fromTurns: ExtractedMessage[] = [];
-    turns.forEach((turn, i) => {
-      const roleNode = turn.querySelector('[data-message-author-role]');
-      if (roleNode) {
-        const role = roleNode.getAttribute('data-message-author-role') as MessageRole;
-        const content = this.extractText(roleNode);
-        if (content.trim()) fromTurns.push({ role, content, index: i });
-      }
+  private async nodesToMessages(nodes: Element[]): Promise<ExtractedMessage[]> {
+    const messages: ExtractedMessage[] = [];
+    nodes.forEach((node, i) => {
+      const role = node.getAttribute('data-message-author-role') as MessageRole;
+      const content = this.extractText(node);
+      if (content.trim()) messages.push({ role, content, index: i });
     });
-    if (fromTurns.length > 0) return fromTurns;
-
-    // Strategy 3: article tags fallback
-    return Array.from(document.querySelectorAll('article')).flatMap((el, i) => {
-      const content = this.extractText(el);
-      return content.trim() ? [{ role: 'unknown' as MessageRole, content, index: i }] : [];
-    });
+    return messages;
   }
 
   private extractText(node: Element): string {
@@ -85,13 +140,14 @@ export class ChatGPTExtractor implements ConversationExtractor {
     return (clone.textContent ?? '').replace(/\n{3,}/g, '\n\n').trim();
   }
 
-  private calcConfidence(messages: ExtractedMessage[]): number {
+  private calcConfidence(messages: ExtractedMessage[], isPartial: boolean): number {
     if (messages.length === 0) return 0.1;
     if (messages.length === 1) return 0.45;
     const hasRoles = messages.some((m) => m.role !== 'unknown');
     const base = hasRoles ? 0.85 : 0.65;
     const emptyRatio = messages.filter((m) => !m.content.trim()).length / messages.length;
-    return Math.max(0.1, base - emptyRatio * 0.3);
+    const score = Math.max(0.1, base - emptyRatio * 0.3);
+    return isPartial ? Math.min(score, 0.6) : score;
   }
 }
 
