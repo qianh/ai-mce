@@ -9,6 +9,12 @@ import * as SQLite from 'wa-sqlite';
 // @ts-ignore
 import { AccessHandlePoolVFS } from 'wa-sqlite/src/examples/AccessHandlePoolVFS.js';
 import type { DbCommand, DbResponse } from './bridge';
+import {
+  captureColumnMigrationSql,
+  fingerprintBackfillPlan,
+  tableInfoColumnNames,
+  type CaptureFingerprintBackfillRow,
+} from './migrations';
 
 const DB_FILE = 'ai-memory.sqlite';
 const VFS_DIR = 'ai-memory-pool';
@@ -44,7 +50,6 @@ async function init() {
       title TEXT NOT NULL, normalized_text TEXT,
       message_count INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL
     );
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_captures_fingerprint ON captures(source_fingerprint) WHERE source_fingerprint != '';
     CREATE INDEX IF NOT EXISTS idx_captures_created ON captures(created_at DESC);
   `);
   // schema_version 2: drop AI tables if they exist (migration from v1)
@@ -53,7 +58,34 @@ async function init() {
     DROP TABLE IF EXISTS memory_items;
     DROP TABLE IF EXISTS memory_candidates;
   `);
+  await migrateCaptureSchema();
+  await runExec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_captures_fingerprint ON captures(source_fingerprint) WHERE source_fingerprint != ''`);
   _initDone = true;
+}
+
+async function migrateCaptureSchema(): Promise<void> {
+  const existingColumns = tableInfoColumnNames(await runQuery('PRAGMA table_info(captures)'));
+  for (const sql of captureColumnMigrationSql(existingColumns)) {
+    await runExec(sql);
+  }
+
+  const rows = await runQuery(
+    `SELECT id, source_platform, source_url, created_at
+     FROM captures
+     WHERE source_fingerprint = ''`
+  ) as CaptureFingerprintBackfillRow[];
+
+  for (const { id, fingerprint } of fingerprintBackfillPlan(rows)) {
+    try {
+      await runExec(
+        `UPDATE captures SET source_fingerprint = ?
+         WHERE id = ? AND source_fingerprint = ''`,
+        [fingerprint, id]
+      );
+    } catch {
+      // A newer row may already own this fingerprint; leaving old rows blank keeps the unique index valid.
+    }
+  }
 }
 
 async function runExec(sql: string, params?: unknown[]): Promise<void> {

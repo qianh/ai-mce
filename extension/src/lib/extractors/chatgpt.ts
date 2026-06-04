@@ -120,7 +120,7 @@ export class ChatGPTExtractor implements ConversationExtractor {
   }
 
   extractConversationId(url: string): string | null {
-    const match = url.match(/\/c\/([a-f0-9-]{36})/i);
+    const match = url.match(/\/c\/([a-f0-9-]{8,})/i);
     return match?.[1] ?? null;
   }
 

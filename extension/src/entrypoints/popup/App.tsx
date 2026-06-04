@@ -19,11 +19,17 @@ export default function App() {
     chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
       if (!tab?.id) { setScreen('degraded'); return; }
 
-      // First check if this is a ChatGPT tab with a conversationId
+      // For ChatGPT: check conversationId first; if content script isn't running yet, fall through to extract anyway
       const isChatGPT = tab.url?.includes('chatgpt.com');
       if (isChatGPT) {
         chrome.tabs.sendMessage(tab.id, { type: 'GET_CONVERSATION_ID' }, (res) => {
-          if (chrome.runtime.lastError || !res?.conversationId) {
+          if (chrome.runtime.lastError) {
+            // Content script not injected yet — try extracting directly (will inject if needed)
+            extractConversation(tab.id!);
+            return;
+          }
+          if (!res?.conversationId) {
+            // Script is running but no conversation started yet
             setScreen('waiting_id');
             return;
           }
@@ -66,11 +72,16 @@ export default function App() {
   const handleSave = (conv: ExtractedConversation) => {
     chrome.runtime.sendMessage(
       { type: 'SAVE_REQUEST', conversation: conv },
-      (result: { success: boolean; capture_id?: string; error?: string }) => {
-        if (result?.success) {
+      (result: { success: boolean; capture_id?: string; error?: string } | undefined) => {
+        if (chrome.runtime.lastError || !result) {
+          setErrorMsg('保存失败，请重试');
+          setScreen('fail');
+          return;
+        }
+        if (result.success) {
           setScreen('success');
         } else {
-          setErrorMsg(result?.error === 'DUPLICATE' ? '此内容已保存过' : '保存失败，请重试');
+          setErrorMsg(result.error === 'DUPLICATE' ? '此内容已保存过' : '保存失败，请重试');
           setScreen('fail');
         }
       }
@@ -96,5 +107,19 @@ export default function App() {
     return null;
   };
 
-  return <div>{renderScreen()}</div>;
+  return (
+    <div>
+      {renderScreen()}
+      {screen !== 'save' && (
+        <div style={{ borderTop: '1px solid var(--line)', padding: '8px 14px', display: 'flex', justifyContent: 'flex-end', background: 'var(--surface-2)' }}>
+          <button
+            onClick={openConsole}
+            style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid var(--line-2)', background: 'var(--surface)', color: 'var(--ink-2)', fontSize: 11.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--font-ui)' }}
+          >
+            控制台 ↗
+          </button>
+        </div>
+      )}
+    </div>
+  );
 }

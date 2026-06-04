@@ -1,5 +1,7 @@
 import { vi } from 'vitest';
 
+(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+
 (globalThis as any).chrome = {
   runtime: {
     sendMessage: vi.fn(),

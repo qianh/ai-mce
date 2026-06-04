@@ -23,38 +23,26 @@ export default function CaptureList() {
     </div>
   );
 
-  const statusStyles: Record<string, { bg: string; color: string; label: string }> = {
-    processed:  { bg: 'var(--ok-bg)',   color: 'var(--ok-fg)',   label: '已处理' },
-    pending_ai: { bg: 'var(--warn-bg)', color: 'var(--warn-fg)', label: '处理中' },
-    ai_failed:  { bg: 'var(--surface-3)', color: 'var(--ink-3)', label: 'AI失败' },
-  };
-
   return (
     <div>
       <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 20 }}>
         Captures <span style={{ fontSize: 14, fontWeight: 400, color: 'var(--ink-3)' }}>· {captures.length} 条</span>
       </div>
       <div className="card" style={{ overflow: 'hidden' }}>
-        {captures.map((c, i) => {
-          const s = statusStyles[c.status] ?? statusStyles['ai_failed']!;
-          return (
-            <div
-              key={c.id}
-              onClick={() => navigate(`/capture/${c.id}`)}
-              style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 18px', borderBottom: i < captures.length - 1 ? '1px solid var(--line)' : 'none', cursor: 'pointer' }}
-            >
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: 600, fontSize: 13.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.source_title}</div>
-                <div style={{ fontSize: 11.5, color: 'var(--ink-3)', marginTop: 2 }}>
-                  {c.source_platform} · {new Date(c.created_at).toLocaleString('zh-CN')}
-                </div>
+        {captures.map((c, i) => (
+          <div
+            key={c.id}
+            onClick={() => navigate(`/capture/${c.id}`)}
+            style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 18px', borderBottom: i < captures.length - 1 ? '1px solid var(--line)' : 'none', cursor: 'pointer' }}
+          >
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 600, fontSize: 13.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.source_title}</div>
+              <div style={{ fontSize: 11.5, color: 'var(--ink-3)', marginTop: 2 }}>
+                {c.source_platform} · {new Date(c.created_at).toLocaleString('zh-CN')}
               </div>
-              <span style={{ fontSize: 11, padding: '3px 9px', borderRadius: 99, fontWeight: 600, background: s.bg, color: s.color, whiteSpace: 'nowrap' }}>
-                {s.label}
-              </span>
             </div>
-          );
-        })}
+          </div>
+        ))}
       </div>
     </div>
   );

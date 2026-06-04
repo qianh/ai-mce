@@ -13,10 +13,25 @@ async function ensureOffscreenDocument() {
   });
 }
 
-export default defineBackground(async () => {
-  await ensureOffscreenDocument();
-  await dbInit();
+// Shared init promise — prevents concurrent createDocument() calls (Chrome allows only one).
+// Reset on failure so a retry is possible.
+let _readyPromise: Promise<void> | null = null;
 
+function ensureReady(): Promise<void> {
+  if (!_readyPromise) {
+    _readyPromise = ensureOffscreenDocument()
+      .then(() => dbInit())
+      .catch((err) => {
+        _readyPromise = null;
+        throw err;
+      });
+  }
+  return _readyPromise;
+}
+
+export default defineBackground(async () => {
+  // Register listeners synchronously before any await — prevents race where popup
+  // sends SAVE_REQUEST before the listener is registered during slow DB init.
   chrome.contextMenus.removeAll(() => {
     chrome.contextMenus.create({
       id: 'save-selection',
@@ -48,11 +63,14 @@ export default defineBackground(async () => {
         return true;
     }
   });
+
+  await ensureReady();
 });
 
 async function handleSave(req: SaveRequest, sendResponse: (r: SaveResult) => void) {
   const { conversation } = req;
   try {
+    await ensureReady();
     if (conversation.metadata?.conversation_id) {
       await upsertCapture(conversation);
     } else {
@@ -71,6 +89,7 @@ async function handleSave(req: SaveRequest, sendResponse: (r: SaveResult) => voi
 
 async function handleExport(sendResponse: (r: { ok: boolean; bytes?: ArrayBuffer }) => void) {
   try {
+    await ensureReady();
     const bytes = await dbExportBytes();
     sendResponse({ ok: true, bytes: bytes.buffer as ArrayBuffer });
   } catch { sendResponse({ ok: false }); }

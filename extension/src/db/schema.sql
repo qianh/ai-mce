@@ -16,10 +16,12 @@ CREATE TABLE IF NOT EXISTS captures (
   source_platform TEXT NOT NULL,
   source_url TEXT NOT NULL,
   source_title TEXT NOT NULL,
-  content_hash TEXT NOT NULL UNIQUE,
+  content_hash TEXT NOT NULL,
+  source_fingerprint TEXT NOT NULL DEFAULT '',
   extraction_quality TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'pending_ai',
-  created_at TEXT NOT NULL
+  status TEXT NOT NULL DEFAULT 'saved',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS source_documents (
@@ -27,43 +29,9 @@ CREATE TABLE IF NOT EXISTS source_documents (
   capture_id TEXT NOT NULL REFERENCES captures(id) ON DELETE CASCADE,
   title TEXT NOT NULL,
   normalized_text TEXT,
-  summary TEXT,
   message_count INTEGER NOT NULL DEFAULT 0,
-  language TEXT,
   created_at TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS memory_candidates (
-  id TEXT PRIMARY KEY,
-  capture_id TEXT NOT NULL REFERENCES captures(id) ON DELETE CASCADE,
-  content TEXT NOT NULL,
-  level TEXT NOT NULL,
-  confidence REAL NOT NULL,
-  reason TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'pending',
-  source_message_indexes TEXT NOT NULL DEFAULT '[]',
-  confirmed_at TEXT,
-  created_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS memory_items (
-  id TEXT PRIMARY KEY,
-  capture_id TEXT NOT NULL,
-  candidate_id TEXT REFERENCES memory_candidates(id),
-  content TEXT NOT NULL,
-  level TEXT NOT NULL,
-  confirmed_by_user INTEGER NOT NULL DEFAULT 0,
-  created_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS context_packs (
-  id TEXT PRIMARY KEY,
-  capture_id TEXT NOT NULL REFERENCES captures(id) ON DELETE CASCADE,
-  project_name TEXT NOT NULL,
-  content_markdown TEXT NOT NULL,
-  created_at TEXT NOT NULL
-);
-
+CREATE UNIQUE INDEX IF NOT EXISTS idx_captures_fingerprint ON captures(source_fingerprint) WHERE source_fingerprint != '';
 CREATE INDEX IF NOT EXISTS idx_captures_created ON captures(created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_candidates_status ON memory_candidates(status);
-CREATE INDEX IF NOT EXISTS idx_candidates_capture ON memory_candidates(capture_id);
