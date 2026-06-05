@@ -2,17 +2,44 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { dbInit } from '../../../db/bridge';
 import { listCaptures } from '../../../db/repos/captures';
+import { getSettings } from '../../../db/repos/settings';
+import { createCloudApiClient, type CloudCaptureListItem } from '../../../lib/cloud-api';
 import type { Capture } from '../../../lib/types';
 
 export default function CaptureList() {
   const [captures, setCaptures] = useState<Capture[]>([]);
+  const [canUploadCloud, setCanUploadCloud] = useState(false);
   const [loading, setLoading] = useState(true);
   const [platformFilter, setPlatformFilter] = useState('all');
   const [titleQuery, setTitleQuery] = useState('');
   const navigate = useNavigate();
 
   useEffect(() => {
-    dbInit().then(() => listCaptures()).then((list) => { setCaptures(list); setLoading(false); });
+    let cancelled = false;
+
+    async function loadCaptures() {
+      await dbInit();
+      const [localCaptures, settings] = await Promise.all([listCaptures(), getSettings()]);
+      let mergedCaptures = localCaptures;
+
+      if (settings.cloud_access_token) {
+        try {
+          const cloudCaptures = await createCloudApiClient(settings.api_base_url).listCaptures(settings.cloud_access_token);
+          mergedCaptures = mergeCaptures(localCaptures, cloudCaptures);
+        } catch {
+          mergedCaptures = localCaptures;
+        }
+      }
+
+      if (!cancelled) {
+        setCaptures(mergedCaptures);
+        setCanUploadCloud(Boolean(settings.cloud_access_token));
+        setLoading(false);
+      }
+    }
+
+    loadCaptures();
+    return () => { cancelled = true; };
   }, []);
 
   const platformOptions = Array.from(new Set(['chatgpt', 'deepseek', ...captures.map((c) => c.source_platform)]));
@@ -78,15 +105,65 @@ export default function CaptureList() {
                 <span style={{ border: '1px solid var(--line-2)', borderRadius: 5, padding: '1px 6px', color: 'var(--ink-2)', background: 'var(--surface-2)', fontWeight: 600 }}>
                   {platformLabel(c.source_platform)}
                 </span>
+                <span style={{ border: '1px solid var(--line-2)', borderRadius: 5, padding: '1px 6px', color: c.storage_state === 'cloud' ? 'var(--ok-fg)' : 'var(--ink-2)', background: 'var(--surface-2)', fontWeight: 600 }}>
+                  {c.storage_state === 'cloud' ? '云端' : '本地'}
+                </span>
                 <span>{new Date(c.created_at).toLocaleString('zh-CN')}</span>
               </div>
             </div>
+            {canUploadCloud && c.storage_state !== 'cloud' && (
+              <button
+                onClick={(event) => {
+                  event.stopPropagation();
+                  navigate(`/capture/${c.id}`);
+                }}
+                style={{ padding: '7px 11px', borderRadius: 7, border: '1px solid var(--line-2)', background: 'var(--surface)', color: 'var(--ink)', cursor: 'pointer', fontFamily: 'var(--font-ui)', fontWeight: 700, fontSize: 12 }}
+              >
+                上传云端
+              </button>
+            )}
           </div>
         ))}
       </div>
       )}
     </div>
   );
+}
+
+function mergeCaptures(localCaptures: Capture[], cloudCaptures: CloudCaptureListItem[]): Capture[] {
+  const localCloudIds = new Set(localCaptures.map((capture) => capture.cloud_capture_id).filter(Boolean));
+  const localFingerprints = new Set(localCaptures.map((capture) => capture.source_fingerprint).filter(Boolean));
+  const localContentHashes = new Set(localCaptures.map((capture) => capture.content_hash).filter(Boolean));
+  const cloudOnlyCaptures = cloudCaptures
+    .filter((capture) => {
+      if (localCloudIds.has(capture.id)) return false;
+      if (capture.source_fingerprint && localFingerprints.has(capture.source_fingerprint)) return false;
+      if (capture.content_hash && localContentHashes.has(capture.content_hash)) return false;
+      return true;
+    })
+    .map(cloudCaptureToCapture);
+
+  return [...localCaptures, ...cloudOnlyCaptures].sort((a, b) =>
+    new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  );
+}
+
+function cloudCaptureToCapture(capture: CloudCaptureListItem): Capture {
+  return {
+    id: `cloud:${capture.id}`,
+    source_platform: capture.source_platform,
+    source_url: capture.source_url,
+    source_title: capture.source_title,
+    content_hash: capture.content_hash,
+    source_fingerprint: capture.source_fingerprint,
+    extraction_quality: capture.extraction_quality as unknown as Capture['extraction_quality'],
+    status: 'saved',
+    created_at: capture.created_at,
+    storage_state: 'cloud',
+    cloud_capture_id: capture.id,
+    cloud_uploaded_at: capture.updated_at,
+    upload_error: null,
+  };
 }
 
 function platformLabel(platform: string): string {

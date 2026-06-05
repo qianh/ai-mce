@@ -20,6 +20,10 @@ CREATE TABLE IF NOT EXISTS captures (
   source_fingerprint TEXT NOT NULL DEFAULT '',
   extraction_quality TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'saved',
+  storage_state TEXT NOT NULL DEFAULT 'local',
+  cloud_capture_id TEXT,
+  cloud_uploaded_at TEXT,
+  upload_error TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL DEFAULT ''
 );

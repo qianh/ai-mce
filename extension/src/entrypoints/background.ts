@@ -1,7 +1,10 @@
 import { dbInit, dbExportBytes } from '../db/bridge';
-import { upsertCapture, insertCapture, getCaptureByFingerprint } from '../db/repos/captures';
+import { upsertCapture, insertCapture, getCaptureByFingerprint, upsertCloudCaptureLink } from '../db/repos/captures';
 import { getSettings, setSetting } from '../db/repos/settings';
 import type { SaveRequest, SaveResult, Settings } from '../lib/types';
+import { createCloudApiClient } from '../lib/cloud-api';
+import { detectSensitive } from '../lib/sensitive';
+import { saveConversation } from '../lib/save-handler';
 
 async function ensureOffscreenDocument() {
   const existing = await chrome.offscreen.hasDocument();
@@ -70,18 +73,24 @@ export default defineBackground(async () => {
 async function handleSave(req: SaveRequest, sendResponse: (r: SaveResult) => void) {
   const { conversation } = req;
   try {
-    await ensureReady();
-    if (conversation.metadata?.conversation_id) {
-      await upsertCapture(conversation);
-    } else {
-      const existing = await getCaptureByFingerprint(conversation.hashes.content_hash);
-      if (existing) {
-        sendResponse({ type: 'SAVE_RESULT', success: false, error: 'DUPLICATE', capture_id: existing.id });
-        return;
-      }
-      await insertCapture(conversation);
-    }
-    sendResponse({ type: 'SAVE_RESULT', success: true });
+    const result = await saveConversation(conversation, {
+      ensureReady,
+      getSettings,
+      saveLocal: async (conv, uploadError) => {
+        const options = { storage_state: 'local' as const, upload_error: uploadError ?? null };
+        if (conv.metadata?.conversation_id) return upsertCapture(conv, options);
+        const existing = await getCaptureByFingerprint(conv.hashes.content_hash);
+        if (existing) return existing.id;
+        return insertCapture(conv, options);
+      },
+      saveCloudLink: upsertCloudCaptureLink,
+      uploadCapture: async (accessToken, conv) => {
+        const settings = await getSettings();
+        return createCloudApiClient(settings.api_base_url).uploadCapture(accessToken, conv) as Promise<{ id: string; updated_at: string }>;
+      },
+      hasSensitiveContent: (conv) => detectSensitive(conv.content.messages).has_sensitive,
+    }, { confirmedSensitiveUpload: req.confirmed_sensitive_upload === true });
+    sendResponse(result);
   } catch {
     sendResponse({ type: 'SAVE_RESULT', success: false, error: 'WRITE_ERROR' });
   }

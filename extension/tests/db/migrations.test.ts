@@ -22,11 +22,22 @@ describe('capture schema migrations', () => {
     expect(captureColumnMigrationSql(existingColumns)).toEqual([
       "ALTER TABLE captures ADD COLUMN source_fingerprint TEXT NOT NULL DEFAULT ''",
       "ALTER TABLE captures ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''",
+      "ALTER TABLE captures ADD COLUMN storage_state TEXT NOT NULL DEFAULT 'local'",
+      "ALTER TABLE captures ADD COLUMN cloud_capture_id TEXT",
+      "ALTER TABLE captures ADD COLUMN cloud_uploaded_at TEXT",
+      "ALTER TABLE captures ADD COLUMN upload_error TEXT",
     ]);
   });
 
   it('does not emit ALTER statements for columns that already exist', () => {
-    expect(captureColumnMigrationSql(['source_fingerprint', 'updated_at'])).toEqual([]);
+    expect(captureColumnMigrationSql([
+      'source_fingerprint',
+      'updated_at',
+      'storage_state',
+      'cloud_capture_id',
+      'cloud_uploaded_at',
+      'upload_error',
+    ])).toEqual([]);
   });
 
   it('reads column names from PRAGMA table_info rows', () => {

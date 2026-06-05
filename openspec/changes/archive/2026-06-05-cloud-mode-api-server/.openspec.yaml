@@ -1,0 +1,5 @@
+schema: spec-driven
+created: 2026-06-04
+goal: AI Memory Capture supports local/cloud storage modes, a Python API server,
+  Supabase-backed user data storage, and cloud data viewing inside the extension
+  options page.

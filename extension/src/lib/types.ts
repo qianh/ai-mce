@@ -2,7 +2,7 @@
 
 export type ExtractionMethod =
   | 'dom_attr' | 'testid' | 'article' | 'large_text_blocks'
-  | 'selection' | 'manual_paste';
+  | 'selection' | 'manual_paste' | 'ds_message';
 
 export interface ExtractionQuality {
   confidence: number;
@@ -46,6 +46,7 @@ export interface ExtractedConversation {
     conversation_id?: string;
     model_name?: string;
     language?: string;
+    manual_backfill?: boolean;
   };
 }
 
@@ -74,9 +75,14 @@ export interface Capture {
   source_url: string;
   source_title: string;
   content_hash: string;
+  source_fingerprint?: string;
   extraction_quality: ExtractionQuality;
   status: CaptureStatus;
   created_at: string;
+  storage_state?: 'local' | 'cloud';
+  cloud_capture_id?: string | null;
+  cloud_uploaded_at?: string | null;
+  upload_error?: string | null;
 }
 
 export interface SourceDocument {
@@ -90,6 +96,11 @@ export interface SourceDocument {
 
 export interface Settings {
   report_mode: 'auto' | 'manual';
+  storage_mode: 'local' | 'cloud';
+  api_base_url: string;
+  cloud_access_token?: string;
+  cloud_refresh_token?: string;
+  cloud_user_email?: string;
   schema_version: number;
 }
 
@@ -98,6 +109,7 @@ export interface Settings {
 export interface SaveRequest {
   type: 'SAVE_REQUEST';
   conversation: ExtractedConversation;
+  confirmed_sensitive_upload?: boolean;
 }
 
 export type ProgressStep =
@@ -114,4 +126,6 @@ export interface SaveResult {
   success: boolean;
   capture_id?: string;
   error?: string;
+  storage_state?: 'local' | 'cloud';
+  upload_error?: string;
 }

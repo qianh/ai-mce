@@ -1,5 +1,5 @@
 import type { ConversationExtractor } from './base';
-import type { ExtractedConversation, ExtractedMessage, MessageRole } from '../types';
+import type { ExtractedConversation, ExtractedMessage, ExtractionMethod, MessageRole } from '../types';
 import { EXTRACTOR_VERSION, SCHEMA_VERSION } from './base';
 import { contentHash, messageHash } from '../hash';
 
@@ -114,7 +114,7 @@ export class DeepSeekExtractor implements ConversationExtractor {
     const dsMessageNodes = Array.from(document.querySelectorAll(DS_MESSAGE_SELECTOR));
 
     let extracted: ExtractedMessage[];
-    let method: string;
+    let method: ExtractionMethod;
 
     if (observedNodes.length > 0) {
       extracted = await this.nodesToMessages(observedNodes);

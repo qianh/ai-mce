@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { ExtractedConversation, SensitiveResult } from '../../lib/types';
+import type { ExtractedConversation, SaveResult, SensitiveResult } from '../../lib/types';
 import SaveScreen from './screens/SaveScreen';
 import DegradedScreen from './screens/DegradedScreen';
 import SensitiveScreen from './screens/SensitiveScreen';
@@ -14,6 +14,7 @@ export default function App() {
   const [screen, setScreen] = useState<Screen>('loading');
   const [conversation, setConversation] = useState<ExtractedConversation | null>(null);
   const [sensitive, setSensitive] = useState<SensitiveResult | null>(null);
+  const [saveResult, setSaveResult] = useState<SaveResult | null>(null);
   const [errorMsg, setErrorMsg] = useState('');
 
   useEffect(() => {
@@ -48,9 +49,10 @@ export default function App() {
       if (chrome.runtime.lastError || !result) { setScreen('degraded'); return; }
       if (result['type'] === 'EXTRACTION_RESULT') {
         const conv = result['conversation'] as ExtractedConversation;
+        const sensitiveResult = result['sensitive'] as SensitiveResult;
         setConversation(conv);
-        setSensitive(result['sensitive'] as SensitiveResult);
-        setScreen(conv.extraction_quality.confidence < 0.6 ? 'degraded' : 'save');
+        setSensitive(sensitiveResult);
+        setScreen(conv.extraction_quality.confidence < 0.6 ? 'degraded' : sensitiveResult?.has_sensitive ? 'sensitive' : 'save');
       } else {
         setScreen('degraded');
       }
@@ -71,16 +73,17 @@ export default function App() {
     });
   };
 
-  const handleSave = (conv: ExtractedConversation) => {
+  const handleSave = (conv: ExtractedConversation, confirmedSensitiveUpload = false) => {
     chrome.runtime.sendMessage(
-      { type: 'SAVE_REQUEST', conversation: conv },
-      (result: { success: boolean; capture_id?: string; error?: string } | undefined) => {
+      { type: 'SAVE_REQUEST', conversation: conv, confirmed_sensitive_upload: confirmedSensitiveUpload },
+      (result: SaveResult | undefined) => {
         if (chrome.runtime.lastError || !result) {
           setErrorMsg('保存失败，请重试');
           setScreen('fail');
           return;
         }
         if (result.success) {
+          setSaveResult(result);
           setScreen('success');
         } else {
           setErrorMsg(result.error === 'DUPLICATE' ? '此内容已保存过' : '保存失败，请重试');
@@ -103,8 +106,8 @@ export default function App() {
     );
     if (screen === 'save' && conversation) return <SaveScreen conversation={conversation} onSave={handleSave} onOpenConsole={openConsole} />;
     if (screen === 'degraded') return <DegradedScreen />;
-    if (screen === 'sensitive' && conversation && sensitive) return <SensitiveScreen conversation={conversation} sensitive={sensitive} onSave={handleSave} />;
-    if (screen === 'success') return <SuccessScreen />;
+    if (screen === 'sensitive' && conversation && sensitive) return <SensitiveScreen conversation={conversation} sensitive={sensitive} onSave={(conv) => handleSave(conv, true)} />;
+    if (screen === 'success') return <SuccessScreen storageState={saveResult?.storage_state} uploadError={saveResult?.upload_error} />;
     if (screen === 'fail') return <FailScreen errorMessage={errorMsg} />;
     return null;
   };

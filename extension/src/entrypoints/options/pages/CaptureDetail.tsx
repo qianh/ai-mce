@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { deleteCapture, getCaptureMessages } from '../../../db/repos/captures';
+import { deleteCapture, getCaptureById, getCaptureMessages, upsertCloudCaptureLink } from '../../../db/repos/captures';
+import { getSettings } from '../../../db/repos/settings';
+import { createCloudApiClient, type CloudCaptureDetail } from '../../../lib/cloud-api';
+import type { Capture, ExtractedConversation, MessageRole } from '../../../lib/types';
 
 const ROLE_LABEL: Record<string, string> = {
   user: '你',
@@ -22,6 +25,8 @@ interface ParsedMessage {
   index: number;
 }
 
+const CLOUD_ID_PREFIX = 'cloud:';
+
 function parseMessages(text: string): ParsedMessage[] {
   const lines = text.split('\n\n');
   return lines.map((block, i) => {
@@ -35,20 +40,78 @@ export default function CaptureDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [messages, setMessages] = useState<ParsedMessage[]>([]);
+  const [capture, setCapture] = useState<Capture | null>(null);
 
   useEffect(() => {
     if (!id) return;
-    getCaptureMessages(id).then((text) => {
-      if (text) setMessages(parseMessages(text));
+    Promise.all([getCaptureById(id), getCaptureMessages(id), getSettings()]).then(async ([row, text, settings]) => {
+      setCapture(row);
+      const cloudOnlyId = id.startsWith(CLOUD_ID_PREFIX) ? id.slice(CLOUD_ID_PREFIX.length) : null;
+      if (!row && cloudOnlyId && settings.cloud_access_token) {
+        const detail = await createCloudApiClient(settings.api_base_url).getCapture(settings.cloud_access_token, cloudOnlyId);
+        setCapture(cloudDetailToCapture(detail));
+        setMessages(cloudMessagesToParsed(detail.messages));
+        return;
+      }
+      if (text) {
+        setMessages(parseMessages(text));
+        return;
+      }
+      if (row?.storage_state === 'cloud' && row.cloud_capture_id && settings.cloud_access_token) {
+        const detail = await createCloudApiClient(settings.api_base_url).getCapture(settings.cloud_access_token, row.cloud_capture_id);
+        setMessages(cloudMessagesToParsed(detail.messages));
+      }
     });
   }, [id]);
 
   const handleDelete = async () => {
     if (!id) return;
     if (confirm('确认删除此 Capture？此操作不可撤销。')) {
+      if (capture?.storage_state === 'cloud' && capture.cloud_capture_id) {
+        const settings = await getSettings();
+        if (settings.cloud_access_token) {
+          await createCloudApiClient(settings.api_base_url).deleteCapture(settings.cloud_access_token, capture.cloud_capture_id);
+        }
+      }
       await deleteCapture(id);
       navigate('/');
     }
+  };
+
+  const handleUploadCloud = async () => {
+    if (!capture || !messages.length) return;
+    const settings = await getSettings();
+    if (!settings.cloud_access_token) return;
+
+    const conversation: ExtractedConversation = {
+      schema_version: '1',
+      extractor_version: 'manual-backfill',
+      source: {
+        platform: capture.source_platform as ExtractedConversation['source']['platform'],
+        url: capture.source_url,
+        browser_title: capture.source_title,
+        captured_at: capture.created_at,
+      },
+      content: {
+        title: capture.source_title,
+        messages: messages.map((message) => ({
+          role: message.role as MessageRole,
+          content: message.content,
+          index: message.index,
+        })),
+      },
+      extraction_quality: capture.extraction_quality,
+      hashes: {
+        content_hash: capture.content_hash,
+        message_hashes: [],
+        source_fingerprint: capture.source_fingerprint || `${capture.source_platform}:${capture.id}`,
+      },
+      metadata: { manual_backfill: true },
+    };
+
+    const uploaded = await createCloudApiClient(settings.api_base_url).uploadCapture(settings.cloud_access_token, conversation) as { id: string; updated_at: string };
+    await upsertCloudCaptureLink(conversation, uploaded.id, uploaded.updated_at);
+    setCapture({ ...capture, storage_state: 'cloud', cloud_capture_id: uploaded.id, cloud_uploaded_at: uploaded.updated_at });
   };
 
   return (
@@ -56,6 +119,11 @@ export default function CaptureDetail() {
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
         <button onClick={() => navigate('/')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-3)', fontSize: 13 }}>← 返回</button>
         <div style={{ fontSize: 20, fontWeight: 700, flex: 1 }}>对话原文</div>
+        {capture && capture.storage_state !== 'cloud' && (
+          <button onClick={handleUploadCloud} style={{ padding: '7px 13px', borderRadius: 7, border: '1px solid var(--line-2)', background: 'var(--surface)', color: 'var(--ink)', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
+            上传云端
+          </button>
+        )}
         <button onClick={handleDelete} style={{ padding: '7px 13px', borderRadius: 7, border: '1px solid color-mix(in oklab, var(--danger-fg) 35%, transparent)', background: 'transparent', color: 'var(--danger-fg)', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
           删除
         </button>
@@ -83,4 +151,30 @@ export default function CaptureDetail() {
       </div>
     </div>
   );
+}
+
+function cloudMessagesToParsed(messages: CloudCaptureDetail['messages']): ParsedMessage[] {
+  return messages.map((message, index) => ({
+    role: message.role,
+    content: message.content,
+    index: message.index ?? index,
+  }));
+}
+
+function cloudDetailToCapture(detail: CloudCaptureDetail): Capture {
+  return {
+    id: `${CLOUD_ID_PREFIX}${detail.id}`,
+    source_platform: detail.source_platform,
+    source_url: detail.source_url,
+    source_title: detail.source_title,
+    content_hash: detail.content_hash,
+    source_fingerprint: detail.source_fingerprint,
+    extraction_quality: detail.extraction_quality as unknown as Capture['extraction_quality'],
+    status: 'saved',
+    created_at: detail.created_at,
+    storage_state: 'cloud',
+    cloud_capture_id: detail.id,
+    cloud_uploaded_at: detail.updated_at,
+    upload_error: null,
+  };
 }

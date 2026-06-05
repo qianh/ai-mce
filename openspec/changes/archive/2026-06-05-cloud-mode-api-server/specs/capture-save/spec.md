@@ -1,9 +1,5 @@
-# Spec: capture-save
+## MODIFIED Requirements
 
-## Purpose
-
-Defines the save behavior for captured conversations across Local Mode and Cloud Mode. The first cloud release stores raw Captures only and does not run AI summarization, memory extraction, or Context Pack generation.
-## Requirements
 ### Requirement: 保存写入本地 SQLite（无 AI 管线）
 用户确认保存后，background SHALL inspect `storage_mode`. In Local Mode it SHALL preserve the existing raw-only local SQLite upsert behavior. In Cloud Mode, local SQLite SHALL be used for cloud metadata after successful upload and for full local fallback after upload failure. Neither path SHALL call AI APIs in the first cloud release.
 
@@ -16,23 +12,7 @@ Defines the save behavior for captured conversations across Local Mode and Cloud
 - **WHEN** a Capture is saved in Local Mode or Cloud Mode
 - **THEN** background does not call summarization, memory extraction, context-pack generation, or external AI APIs
 
-### Requirement: 上报模式设置
-Settings SHALL 提供 `report_mode` 配置项，值为 `'auto' | 'manual'`，默认 `'manual'`。`'auto'` 模式下 background 接收来自 content script 的自动触发保存请求；`'manual'` 模式下仅响应用户手动触发的请求。
-
-#### Scenario: 首次安装默认为手动模式
-- **WHEN** 用户首次安装扩展，Settings 从未配置
-- **THEN** `report_mode` 默认值为 `'manual'`
-
-#### Scenario: 用户切换为自动模式
-- **WHEN** 用户在 Settings 页面将上报模式切换为"自动"
-- **THEN** `setSetting('report_mode', 'auto')` 持久化，后续 AI 每轮回复结束后自动触发保存
-
-### Requirement: CaptureDetail 展示原始对话
-Options 页面的 CaptureDetail SHALL 展示保存的原始对话消息列表（role + content），移除 candidates 和 context-pack 区块。
-
-#### Scenario: 查看保存对话的原文
-- **WHEN** 用户在 CaptureList 点击某条记录进入 CaptureDetail
-- **THEN** 页面展示该对话的完整消息列表，每条消息显示 role 标签和 content 文本，可滚动浏览
+## ADDED Requirements
 
 ### Requirement: Cloud Mode 保存上传云端
 用户确认保存后，Cloud Mode SHALL upload the full Capture payload to the API server when authenticated, with local fallback on upload failure.

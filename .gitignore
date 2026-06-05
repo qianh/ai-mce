@@ -1,2 +1,7 @@
 .DS_Store
 MEMORY/
+__pycache__/
+.pytest_cache/
+.venv/
+api-server/.venv/
+extension/.output/

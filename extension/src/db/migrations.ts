@@ -7,6 +7,22 @@ const CAPTURE_COLUMN_MIGRATIONS = [
     name: 'updated_at',
     sql: "ALTER TABLE captures ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''",
   },
+  {
+    name: 'storage_state',
+    sql: "ALTER TABLE captures ADD COLUMN storage_state TEXT NOT NULL DEFAULT 'local'",
+  },
+  {
+    name: 'cloud_capture_id',
+    sql: 'ALTER TABLE captures ADD COLUMN cloud_capture_id TEXT',
+  },
+  {
+    name: 'cloud_uploaded_at',
+    sql: 'ALTER TABLE captures ADD COLUMN cloud_uploaded_at TEXT',
+  },
+  {
+    name: 'upload_error',
+    sql: 'ALTER TABLE captures ADD COLUMN upload_error TEXT',
+  },
 ] as const;
 
 export type CaptureFingerprintBackfillRow = [

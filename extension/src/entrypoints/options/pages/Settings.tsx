@@ -1,9 +1,14 @@
 import { useEffect, useState } from 'react';
 import { getSettings, setSetting } from '../../../db/repos/settings';
+import { CloudApiError, createCloudApiClient, type CloudAuthResponse } from '../../../lib/cloud-api';
 import type { Settings as SettingsType } from '../../../lib/types';
 
 export default function Settings() {
   const [settings, setSettings] = useState<SettingsType | null>(null);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [authError, setAuthError] = useState('');
+  const [authBusy, setAuthBusy] = useState(false);
 
   useEffect(() => { getSettings().then(setSettings); }, []);
 
@@ -12,6 +17,61 @@ export default function Settings() {
     const next = settings.report_mode === 'auto' ? 'manual' : 'auto';
     await setSetting('report_mode', next);
     setSettings((s) => s ? { ...s, report_mode: next } : s);
+  };
+
+  const setStorageMode = async (mode: SettingsType['storage_mode']) => {
+    await setSetting('storage_mode', mode);
+    setSettings((s) => s ? { ...s, storage_mode: mode } : s);
+  };
+
+  const updateApiBaseUrl = async (value: string) => {
+    await setSetting('api_base_url', value);
+    setSettings((s) => s ? { ...s, api_base_url: value } : s);
+  };
+
+  const loginCloud = async () => {
+    if (!settings) return;
+    setAuthBusy(true);
+    setAuthError('');
+    try {
+      const client = createCloudApiClient(settings.api_base_url);
+      const result = await loginOrRegisterCloud(client, email.trim(), password);
+      await setSetting('storage_mode', 'cloud');
+      await setSetting('cloud_access_token', result.access_token);
+      await setSetting('cloud_refresh_token', result.refresh_token);
+      await setSetting('cloud_user_email', result.user.email);
+      setSettings((s) => s ? {
+        ...s,
+        storage_mode: 'cloud',
+        cloud_access_token: result.access_token,
+        cloud_refresh_token: result.refresh_token,
+        cloud_user_email: result.user.email,
+      } : s);
+    } catch (error) {
+      setAuthError(error instanceof CloudApiError ? error.message : '登录或注册失败，请重试');
+    } finally {
+      setAuthBusy(false);
+    }
+  };
+
+  const logoutCloud = async () => {
+    if (!settings) return;
+    if (settings.cloud_refresh_token) {
+      try {
+        await createCloudApiClient(settings.api_base_url).logout(settings.cloud_refresh_token);
+      } catch {
+        // Local session cleanup still matters if the network is unavailable.
+      }
+    }
+    await setSetting('cloud_access_token', null);
+    await setSetting('cloud_refresh_token', null);
+    await setSetting('cloud_user_email', null);
+    setSettings((s) => s ? {
+      ...s,
+      cloud_access_token: undefined,
+      cloud_refresh_token: undefined,
+      cloud_user_email: undefined,
+    } : s);
   };
 
   const exportDb = () => {
@@ -33,10 +93,94 @@ export default function Settings() {
   if (!settings) return <div style={{ color: 'var(--ink-3)', padding: 20 }}>加载中…</div>;
 
   const isAuto = settings.report_mode === 'auto';
+  const isCloud = settings.storage_mode === 'cloud';
+  const isLoggedIn = Boolean(settings.cloud_user_email && settings.cloud_access_token);
 
   return (
     <div style={{ maxWidth: 600 }}>
       <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 24 }}>设置</div>
+
+      <div className="card" style={{ padding: 20, marginBottom: 16 }}>
+        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>存储版本</div>
+        <div style={{ display: 'flex', gap: 8, marginTop: 14, marginBottom: 14 }}>
+          <button
+            onClick={() => setStorageMode('local')}
+            style={{ padding: '8px 12px', borderRadius: 7, border: '1px solid var(--line-2)', background: !isCloud ? 'var(--ink)' : 'var(--surface)', color: !isCloud ? 'var(--paper)' : 'var(--ink)', cursor: 'pointer', fontFamily: 'var(--font-ui)', fontWeight: 700, fontSize: 13 }}
+          >
+            个人本地版
+          </button>
+          <button
+            onClick={() => setStorageMode('cloud')}
+            style={{ padding: '8px 12px', borderRadius: 7, border: '1px solid var(--line-2)', background: isCloud ? 'var(--ink)' : 'var(--surface)', color: isCloud ? 'var(--paper)' : 'var(--ink)', cursor: 'pointer', fontFamily: 'var(--font-ui)', fontWeight: 700, fontSize: 13 }}
+          >
+            云端版
+          </button>
+        </div>
+
+        {!isCloud ? (
+          <div style={{ fontSize: 12.5, color: 'var(--ink-3)', lineHeight: 1.5 }}>
+            不需要注册，保存和查看都只使用本地 SQLite。
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div style={{ fontSize: 12.5, color: 'var(--ink-3)', lineHeight: 1.5 }}>
+              需要注册或登录后保存到云端数据库。
+            </div>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 5, fontSize: 12, color: 'var(--ink-3)', fontWeight: 700 }}>
+              API
+              <input
+                aria-label="API Base URL"
+                value={settings.api_base_url}
+                onChange={(event) => updateApiBaseUrl(event.currentTarget.value)}
+                onInput={(event) => updateApiBaseUrl(event.currentTarget.value)}
+                style={{ height: 34, padding: '0 10px', border: '1px solid var(--line-2)', borderRadius: 6, background: 'var(--surface)', color: 'var(--ink)', fontFamily: 'var(--font-ui)', fontSize: 13 }}
+              />
+            </label>
+            {isLoggedIn ? (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                <div style={{ fontSize: 13, color: 'var(--ink-2)' }}>{settings.cloud_user_email}</div>
+                <button onClick={logoutCloud} style={{ padding: '8px 12px', borderRadius: 7, border: '1px solid var(--line-2)', background: 'var(--surface)', color: 'var(--ink)', cursor: 'pointer', fontFamily: 'var(--font-ui)', fontWeight: 700, fontSize: 13 }}>
+                  退出登录
+                </button>
+              </div>
+            ) : (
+              <div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 8 }}>
+                  <input
+                    aria-label="邮箱"
+                    value={email}
+                    onChange={(event) => setEmail(event.currentTarget.value)}
+                    onInput={(event) => setEmail(event.currentTarget.value)}
+                    placeholder="邮箱"
+                    style={{ height: 34, padding: '0 10px', border: '1px solid var(--line-2)', borderRadius: 6, background: 'var(--surface)', color: 'var(--ink)', fontFamily: 'var(--font-ui)', fontSize: 13 }}
+                  />
+                  <input
+                    aria-label="密码"
+                    value={password}
+                    onChange={(event) => setPassword(event.currentTarget.value)}
+                    onInput={(event) => setPassword(event.currentTarget.value)}
+                    placeholder="密码"
+                    type="password"
+                    style={{ height: 34, padding: '0 10px', border: '1px solid var(--line-2)', borderRadius: 6, background: 'var(--surface)', color: 'var(--ink)', fontFamily: 'var(--font-ui)', fontSize: 13 }}
+                  />
+                  <button
+                    onClick={loginCloud}
+                    disabled={authBusy || !email.trim() || !password}
+                    style={{ padding: '0 14px', borderRadius: 7, border: '1px solid var(--line-2)', background: 'var(--ink)', color: 'var(--paper)', cursor: authBusy ? 'default' : 'pointer', fontFamily: 'var(--font-ui)', fontWeight: 700, fontSize: 13, opacity: authBusy ? 0.7 : 1 }}
+                  >
+                    {authBusy ? '处理中…' : '登录 / 注册'}
+                  </button>
+                </div>
+                {authError && (
+                  <div style={{ marginTop: 8, color: 'var(--danger-fg)', fontSize: 12 }}>
+                    {authError}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
 
       <div className="card" style={{ padding: 20, marginBottom: 16 }}>
         <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>上报模式</div>
@@ -79,4 +223,25 @@ export default function Settings() {
       </div>
     </div>
   );
+}
+
+async function loginOrRegisterCloud(
+  client: ReturnType<typeof createCloudApiClient>,
+  email: string,
+  password: string
+): Promise<CloudAuthResponse> {
+  try {
+    return await client.login(email, password);
+  } catch (error) {
+    if (!(error instanceof CloudApiError) || error.status !== 401) throw error;
+  }
+
+  try {
+    return await client.register(email, password);
+  } catch (error) {
+    if (error instanceof CloudApiError && error.status === 409) {
+      throw new CloudApiError(401, '邮箱或密码不正确');
+    }
+    throw error;
+  }
 }
