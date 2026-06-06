@@ -1,91 +1,59 @@
-from datetime import UTC, datetime
-
 from fastapi import APIRouter, Depends, HTTPException, Response, status
-from sqlalchemy import select
-from sqlalchemy.orm import Session
 
-from app.db import get_db
-from app.models import RefreshToken, User
 from app.schemas import AuthRequest, AuthResponse, RefreshRequest, UserResponse
-from app.security import (
-    create_access_token,
-    hash_password,
-    hash_refresh_token,
-    new_refresh_token,
-    refresh_expires_at,
-    verify_password,
-)
+from app.security import create_access_token, new_refresh_token, refresh_expires_at
+from app.supabase_client import SupabaseApiError, SupabaseRestClient, get_supabase_client
 
 router = APIRouter(prefix="/v1/auth", tags=["auth"])
 
 
-def _as_utc(value):
-    return value.replace(tzinfo=UTC) if value.tzinfo is None else value
-
-
-def _auth_response(db: Session, user: User) -> AuthResponse:
+def _auth_response(client: SupabaseRestClient, user: dict) -> AuthResponse:
     refresh_token = new_refresh_token()
-    db.add(
-        RefreshToken(
-            user_id=user.id,
-            token_hash=hash_refresh_token(refresh_token),
-            expires_at=refresh_expires_at(),
-        )
-    )
-    db.commit()
+    client.store_refresh_token(user["id"], refresh_token, refresh_expires_at())
     return AuthResponse(
-        user=UserResponse(id=user.id, email=user.email),
-        access_token=create_access_token(user.id),
+        user=UserResponse(id=user["id"], email=user["email"]),
+        access_token=create_access_token(user["id"]),
         refresh_token=refresh_token,
     )
 
 
-@router.post("/register", response_model=AuthResponse, status_code=status.HTTP_201_CREATED)
-def register(req: AuthRequest, db: Session = Depends(get_db)) -> AuthResponse:
-    email = req.email.lower()
-    existing = db.scalar(select(User).where(User.email == email))
-    if existing:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
+def _auth_exception(exc: SupabaseApiError, *, operation: str) -> HTTPException:
+    message = exc.message.lower()
+    if operation == "login" and exc.status_code == 400 and "invalid login credentials" in message:
+        return HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=exc.message)
+    if operation == "register" and exc.status_code == 400 and "already registered" in message:
+        return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.message)
+    return HTTPException(status_code=exc.status_code, detail=exc.message)
 
-    user = User(email=email, password_hash=hash_password(req.password))
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-    return _auth_response(db, user)
+
+@router.post("/register", response_model=AuthResponse, status_code=status.HTTP_201_CREATED)
+def register(req: AuthRequest, client: SupabaseRestClient = Depends(get_supabase_client)) -> AuthResponse:
+    try:
+        return _auth_response(client, client.register(req.email.lower(), req.password))
+    except SupabaseApiError as exc:
+        raise _auth_exception(exc, operation="register") from exc
 
 
 @router.post("/login", response_model=AuthResponse)
-def login(req: AuthRequest, db: Session = Depends(get_db)) -> AuthResponse:
-    user = db.scalar(select(User).where(User.email == req.email.lower()))
-    if user is None or not verify_password(req.password, user.password_hash):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
-    return _auth_response(db, user)
+def login(req: AuthRequest, client: SupabaseRestClient = Depends(get_supabase_client)) -> AuthResponse:
+    try:
+        return _auth_response(client, client.login(req.email.lower(), req.password))
+    except SupabaseApiError as exc:
+        raise _auth_exception(exc, operation="login") from exc
 
 
 @router.post("/refresh", response_model=AuthResponse)
-def refresh(req: RefreshRequest, db: Session = Depends(get_db)) -> AuthResponse:
-    token_hash = hash_refresh_token(req.refresh_token)
-    token = db.scalar(select(RefreshToken).where(RefreshToken.token_hash == token_hash))
-    now = datetime.now(UTC)
-    if token is None or token.revoked_at is not None or _as_utc(token.expires_at) <= now:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
-
-    user = db.get(User, token.user_id)
-    if user is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
-
-    token.revoked_at = now
-    db.add(token)
-    db.commit()
-    return _auth_response(db, user)
+def refresh(req: RefreshRequest, client: SupabaseRestClient = Depends(get_supabase_client)) -> AuthResponse:
+    try:
+        user = client.consume_refresh_token(req.refresh_token)
+        if user is None:
+            raise SupabaseApiError(status.HTTP_401_UNAUTHORIZED, "Invalid refresh token")
+        return _auth_response(client, user)
+    except SupabaseApiError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
-def logout(req: RefreshRequest, db: Session = Depends(get_db)) -> Response:
-    token_hash = hash_refresh_token(req.refresh_token)
-    token = db.scalar(select(RefreshToken).where(RefreshToken.token_hash == token_hash))
-    if token is not None and token.revoked_at is None:
-        token.revoked_at = datetime.now(UTC)
-        db.add(token)
-        db.commit()
+def logout(req: RefreshRequest, client: SupabaseRestClient = Depends(get_supabase_client)) -> Response:
+    client.logout(req.refresh_token)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

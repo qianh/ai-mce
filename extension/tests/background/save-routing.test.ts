@@ -105,6 +105,30 @@ describe('save routing', () => {
     expect(deps.saveLocal).toHaveBeenCalledWith(conversation, 'CLOUD_UPLOAD_FAILED');
   });
 
+  it('stores cloud metadata when the upload dependency refreshes an expired token and succeeds', async () => {
+    const deps = {
+      ensureReady: vi.fn().mockResolvedValue(undefined),
+      getSettings: vi.fn().mockResolvedValue(settings({
+        storage_mode: 'cloud',
+        cloud_access_token: 'expired-access',
+        cloud_refresh_token: 'refresh',
+      })),
+      saveLocal: vi.fn(),
+      saveCloudLink: vi.fn().mockResolvedValue('local-cloud-link'),
+      uploadCapture: vi.fn().mockResolvedValue({ id: 'cloud-1', updated_at: '2026-06-06T00:00:01.000Z' }),
+      hasSensitiveContent: vi.fn().mockReturnValue(false),
+    };
+
+    await expect(saveConversation(conversation, deps)).resolves.toMatchObject({
+      success: true,
+      capture_id: 'local-cloud-link',
+      storage_state: 'cloud',
+    });
+    expect(deps.uploadCapture).toHaveBeenCalledWith('expired-access', conversation);
+    expect(deps.saveCloudLink).toHaveBeenCalledWith(conversation, 'cloud-1', '2026-06-06T00:00:01.000Z');
+    expect(deps.saveLocal).not.toHaveBeenCalled();
+  });
+
   it('requires explicit confirmation before uploading sensitive content to cloud', async () => {
     const deps = {
       ensureReady: vi.fn().mockResolvedValue(undefined),

@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { deleteCapture, getCaptureById, getCaptureMessages, upsertCloudCaptureLink } from '../../../db/repos/captures';
-import { getSettings } from '../../../db/repos/settings';
+import { getSettings, setSetting } from '../../../db/repos/settings';
 import { createCloudApiClient, type CloudCaptureDetail } from '../../../lib/cloud-api';
+import { uploadCaptureWithSessionRefresh } from '../../../lib/cloud-session';
 import type { Capture, ExtractedConversation, MessageRole } from '../../../lib/types';
 
 const ROLE_LABEL: Record<string, string> = {
@@ -109,7 +110,7 @@ export default function CaptureDetail() {
       metadata: { manual_backfill: true },
     };
 
-    const uploaded = await createCloudApiClient(settings.api_base_url).uploadCapture(settings.cloud_access_token, conversation) as { id: string; updated_at: string };
+    const uploaded = await uploadCaptureWithSessionRefresh(settings.cloud_access_token, conversation, { getSettings, setSetting });
     await upsertCloudCaptureLink(conversation, uploaded.id, uploaded.updated_at);
     setCapture({ ...capture, storage_state: 'cloud', cloud_capture_id: uploaded.id, cloud_uploaded_at: uploaded.updated_at });
   };

@@ -38,9 +38,9 @@ created: 2026-06-04
   - 历史本地 Capture 采用逐条手动补传：后台检测每条 Capture 是否已有云端副本；如果仍是本地数据，在该 Capture 后提供“上传云端”按钮。
   - 云端版新 Capture 上传成功后，本地 SQLite 只保留轻量 metadata 与云端 Capture ID，不长期保留完整原文。
   - 云端版上传失败时回落为本地数据，完整原文保存到本地 SQLite；用户后续通过同一套“上传云端”手动同步操作上传到云端。
-  - 云端版第一版采用 `api-server/` 自建邮箱 + 密码注册登录，使用短期 access token 与长期 refresh token；OAuth/PKCE 作为后续扩展，不是本轮必需路径。
+  - 云端版第一版采用 `api-server/` 自有邮箱 + 密码业务用户体系；插件只访问 `api-server/`，`api-server/` 使用 Supabase service role key 写入业务表。
   - `api-server/` 使用 Python 技术栈，因为后续需要在服务端处理内容 AI 分析。
-  - 云端数据库第一版直接使用 Supabase/Postgres；不为 MySQL/SQLite 做第一版兼容抽象，后续如果要迁数据库再处理。
+  - 云端数据库第一版使用 Supabase REST + service role key；不要求 `api-server/` 持有 Postgres 直连串。
   - 云端第一版只做 Capture 上传、用户级存储、列表/详情查看；不做服务端 AI 分析。
   - 云端上传完整原文消息与 extraction metadata；命中敏感内容时，云端上传前仍需二次确认。
   - 删除 Capture 采用“一起删”：如果 Capture 有云端副本，删除时同时删除云端记录和本地 metadata/本地副本；不提供仅删除本地副本的分叉操作。
@@ -63,7 +63,7 @@ created: 2026-06-04
 - Sensitive Upload Confirmation：敏感内容上传前二次确认。
 - Delete Capture：删除产品持有的所有副本；有云端副本时云端与本地一起删。
 - API Server：Python 云端服务，第一版只接收/存储/展示 Capture，后续承载 AI 分析。
-- Cloud Database：Supabase/Postgres。
+- Cloud Database：Supabase `public.users`、`public.refresh_tokens`、`public.captures` 业务表，通过 REST API 与后端 service role key 访问。
 
 ## 需求
 ### 用户故事
@@ -150,9 +150,11 @@ created: 2026-06-04
 
 - 技术栈：Python + FastAPI（N3 默认），后续 AI 分析继续在 Python 生态扩展。
 - 数据库：Supabase/Postgres。
-- Auth：`api-server/` 自建邮箱密码用户体系；Supabase Auth 不作为第一版依赖。
+- Auth：`api-server/` 自己管理业务用户、密码哈希、access token 和 refresh token；插件不直连 Supabase。
 
-### Supabase/Postgres 数据模型
+### Supabase 数据模型
+
+业务用户与 session 使用 `public.users` 与 `public.refresh_tokens`，由 `api-server/` 通过 Supabase REST 和 service role key 管理。
 
 `users`
 - `id uuid primary key`
@@ -163,7 +165,7 @@ created: 2026-06-04
 
 `refresh_tokens`
 - `id uuid primary key`
-- `user_id uuid not null references users(id) on delete cascade`
+- `user_id uuid not null references public.users(id) on delete cascade`
 - `token_hash text unique not null`
 - `expires_at timestamptz not null`
 - `revoked_at timestamptz null`
@@ -171,7 +173,7 @@ created: 2026-06-04
 
 `captures`
 - `id uuid primary key`
-- `user_id uuid not null references users(id) on delete cascade`
+- `user_id uuid not null references public.users(id) on delete cascade`
 - `source_platform text not null`
 - `source_url text not null`
 - `source_title text not null`
@@ -187,6 +189,10 @@ created: 2026-06-04
 索引：
 - `(user_id, created_at desc)`
 - unique `(user_id, source_fingerprint)` where `source_fingerprint != ''`
+
+权限：
+- 业务 API 鉴权由 `api-server/` 完成。
+- Supabase service role key 仅保存在 `api-server/.env`，不进入插件或前端代码。
 
 ### Extension 本地模型补充
 
@@ -308,9 +314,9 @@ Popup：
 - [x] T-001 API Server Skeleton And Health
   - 创建 `api-server/` Python FastAPI 项目与 `/health`。
   - 测试：`api-server/tests/test_health.py`
-- [x] T-002 Supabase/Postgres Models And Migrations
-  - 建立 `users`、`refresh_tokens`、`captures` 模型与 Alembic 迁移。
-  - 测试：`api-server/tests/test_models.py`
+- [x] T-002 Supabase Business Tables
+  - 在 Supabase 建立 `public.users`、`public.refresh_tokens`、`public.captures`、索引和 updated_at trigger。
+  - 测试：`api-server/tests/test_supabase_client.py`
 - [x] T-003 Auth Contract
   - 实现邮箱密码注册、登录、刷新、退出。
   - 测试：`api-server/tests/test_auth.py`
@@ -338,9 +344,9 @@ Popup：
 
 ## 实现与测试记录
 - API server：
-  - 新增 FastAPI app、health route、SQLAlchemy models、Alembic initial migration。
-  - 新增 email/password auth、refresh token lifecycle、user-scoped captures CRUD/upsert。
-  - 测试：`api-server/tests/test_health.py`、`test_models.py`、`test_auth.py`、`test_captures.py`。
+  - 新增 FastAPI app、health route、Supabase REST client。
+  - 新增自有业务用户注册/登录/刷新/退出、user-scoped captures CRUD/upsert。
+  - 测试：`api-server/tests/test_health.py`、`test_auth.py`、`test_captures.py`、`test_supabase_client.py`。
 - Extension：
   - Settings 增加 Local Mode / Cloud Mode、API base URL、cloud session。
   - Local SQLite 增加 `storage_state`、`cloud_capture_id`、`cloud_uploaded_at`、`upload_error`。
@@ -385,7 +391,7 @@ Popup：
   - 默认 Local Mode；Cloud Mode 必须注册/登录后启用。
   - 历史本地数据不自动上传，只能逐条 Manual Backfill。
   - Cloud Mode 上传失败必须 Upload Fallback 到本地，避免内容丢失。
-  - 云端第一版直接使用 Supabase/Postgres，不做数据库抽象层。
+  - 云端第一版通过 Supabase REST + service role key 访问业务表，不做数据库抽象层。
   - API Server 使用 Python/FastAPI，第一版不做 AI 分析，但保留后续扩展空间。
   - 删除 cloud-backed Capture 时云端和本地一起删。
 - 被否方案：
@@ -395,4 +401,4 @@ Popup：
   - 独立 Web Console：第一版仅做 extension options page。
 - 遗留 TODO：
   - 生产部署域名确定后，补充 extension host permission。
-  - 生产 Supabase 环境需要配置 `AI_MCE_DATABASE_URL` 并执行 Alembic migration。
+  - 生产 `api-server` 需要配置 `AI_MCE_SUPABASE_URL` / `AI_MCE_SUPABASE_SERVICE_ROLE_KEY`；service role key 只能放在后端环境变量。

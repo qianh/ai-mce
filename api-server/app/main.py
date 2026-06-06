@@ -1,31 +1,25 @@
 from fastapi import FastAPI
-from sqlalchemy.orm import Session, sessionmaker
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
-from app.db import create_database_engine, get_db
-from app.models import Base
 from app.routes.auth import router as auth_router
 from app.routes.captures import router as captures_router
+from app.supabase_client import SupabaseRestClient, get_supabase_client
 
 
-def create_app(database_url: str | None = None, create_schema: bool = False) -> FastAPI:
+def create_app(supabase_client: SupabaseRestClient | None = None) -> FastAPI:
     settings = get_settings()
     app = FastAPI(title=settings.app_name)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origin_regex=r"^(chrome-extension://.*|moz-extension://.*|http://localhost(:\d+)?|http://127\.0\.0\.1(:\d+)?)$",
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=["authorization", "content-type"],
+    )
 
-    if database_url is not None:
-        engine = create_database_engine(database_url)
-        if create_schema:
-            Base.metadata.create_all(bind=engine)
-        TestingSessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
-
-        def get_test_db():
-            db: Session = TestingSessionLocal()
-            try:
-                yield db
-            finally:
-                db.close()
-
-        app.dependency_overrides[get_db] = get_test_db
+    if supabase_client is not None:
+        app.dependency_overrides[get_supabase_client] = lambda: supabase_client
 
     app.include_router(auth_router)
     app.include_router(captures_router)

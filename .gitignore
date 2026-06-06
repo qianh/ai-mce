@@ -3,5 +3,7 @@ MEMORY/
 __pycache__/
 .pytest_cache/
 .venv/
+api-server/.env
+api-server/*.db
 api-server/.venv/
 extension/.output/

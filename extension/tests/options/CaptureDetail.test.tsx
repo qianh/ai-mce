@@ -10,6 +10,7 @@ const getCaptureMessages = vi.hoisted(() => vi.fn());
 const deleteCapture = vi.hoisted(() => vi.fn());
 const upsertCloudCaptureLink = vi.hoisted(() => vi.fn());
 const getSettings = vi.hoisted(() => vi.fn());
+const setSetting = vi.hoisted(() => vi.fn());
 const getCloudCapture = vi.hoisted(() => vi.fn());
 const deleteCloudCapture = vi.hoisted(() => vi.fn());
 const uploadCloudCapture = vi.hoisted(() => vi.fn());
@@ -24,6 +25,7 @@ vi.mock('../../src/db/repos/captures', () => ({
 
 vi.mock('../../src/db/repos/settings', () => ({
   getSettings,
+  setSetting,
 }));
 
 vi.mock('../../src/lib/cloud-api', () => ({
@@ -32,6 +34,10 @@ vi.mock('../../src/lib/cloud-api', () => ({
     deleteCapture: deleteCloudCapture,
     uploadCapture: uploadCloudCapture,
   })),
+}));
+
+vi.mock('../../src/lib/cloud-session', () => ({
+  uploadCaptureWithSessionRefresh: uploadCloudCapture,
 }));
 
 vi.mock('react-router-dom', async (importOriginal) => {
@@ -91,6 +97,7 @@ describe('CaptureDetail cloud behavior', () => {
     getCaptureMessages.mockReset().mockResolvedValue(null);
     deleteCapture.mockReset().mockResolvedValue(undefined);
     upsertCloudCaptureLink.mockReset().mockResolvedValue('local-1');
+    setSetting.mockReset().mockResolvedValue(undefined);
     getSettings.mockReset().mockResolvedValue({
       report_mode: 'manual',
       storage_mode: 'cloud',
@@ -175,14 +182,18 @@ describe('CaptureDetail cloud behavior', () => {
       uploadButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     });
 
-    expect(uploadCloudCapture).toHaveBeenCalledWith('access', expect.objectContaining({
-      hashes: expect.objectContaining({
-        source_fingerprint: 'chatgpt:abc',
+    expect(uploadCloudCapture).toHaveBeenCalledWith(
+      'access',
+      expect.objectContaining({
+        hashes: expect.objectContaining({
+          source_fingerprint: 'chatgpt:abc',
+        }),
+        content: expect.objectContaining({
+          messages: [expect.objectContaining({ content: 'Local full text' })],
+        }),
       }),
-      content: expect.objectContaining({
-        messages: [expect.objectContaining({ content: 'Local full text' })],
-      }),
-    }));
+      expect.objectContaining({ getSettings, setSetting })
+    );
     expect(upsertCloudCaptureLink).toHaveBeenCalledWith(
       expect.any(Object),
       'cloud-2',

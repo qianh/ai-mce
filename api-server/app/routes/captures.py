@@ -1,133 +1,97 @@
-from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
-from sqlalchemy import desc, select
-from sqlalchemy.orm import Session
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from app.db import get_db
-from app.models import Capture, User
 from app.schemas import CaptureCreateRequest, CaptureCreateResponse, CaptureDetailResponse, CaptureListItem
-from app.security import get_current_user
+from app.security import decode_access_token
+from app.supabase_client import SupabaseApiError, SupabaseRestClient, get_supabase_client
 
 router = APIRouter(prefix="/v1/captures", tags=["captures"])
+_bearer = HTTPBearer(auto_error=False)
 
 
-def _capture_item(capture: Capture) -> CaptureListItem:
+def current_user_id(credentials: HTTPAuthorizationCredentials | None = Depends(_bearer)) -> str:
+    if credentials is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing token")
+    return str(decode_access_token(credentials.credentials))
+
+
+def _capture_item(row: dict) -> CaptureListItem:
+    messages = list(row.get("messages") or [])
     return CaptureListItem(
-        id=capture.id,
-        source_platform=capture.source_platform,
-        source_url=capture.source_url,
-        source_title=capture.source_title,
-        content_hash=capture.content_hash,
-        source_fingerprint=capture.source_fingerprint,
-        extraction_quality=capture.extraction_quality,
-        metadata=capture.metadata_json,
-        analysis_status=capture.analysis_status,
-        message_count=len(capture.messages),
-        created_at=capture.created_at,
-        updated_at=capture.updated_at,
+        id=row["id"],
+        source_platform=row["source_platform"],
+        source_url=row["source_url"],
+        source_title=row["source_title"],
+        content_hash=row["content_hash"],
+        source_fingerprint=row["source_fingerprint"],
+        extraction_quality=row["extraction_quality"],
+        metadata=row["metadata"],
+        analysis_status=row["analysis_status"],
+        message_count=row.get("message_count") or len(messages),
+        created_at=row["created_at"],
+        updated_at=row["updated_at"],
     )
 
 
-def _capture_detail(capture: Capture) -> CaptureDetailResponse:
-    item = _capture_item(capture).model_dump()
-    return CaptureDetailResponse(**item, messages=capture.messages)
-
-
-def _capture_values(req: CaptureCreateRequest) -> dict:
-    source = req.source
-    content = req.content
-    hashes = req.hashes
-    messages = list(content.get("messages") or [])
-    return {
-        "source_platform": source["platform"],
-        "source_url": source["url"],
-        "source_title": content.get("title") or source.get("browser_title") or "",
-        "content_hash": hashes["content_hash"],
-        "source_fingerprint": hashes.get("source_fingerprint") or "",
-        "extraction_quality": req.extraction_quality,
-        "messages": messages,
-        "metadata_json": {
-            "source": source,
-            "metadata": req.metadata or {},
-            "message_hashes": hashes.get("message_hashes") or [],
-        },
-        "analysis_status": "not_started",
-    }
+def _capture_detail(row: dict) -> CaptureDetailResponse:
+    item = _capture_item(row).model_dump()
+    return CaptureDetailResponse(**item, messages=list(row.get("messages") or []))
 
 
 @router.post("", response_model=CaptureCreateResponse)
 def create_capture(
     req: CaptureCreateRequest,
     response: Response,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    user_id: str = Depends(current_user_id),
+    client: SupabaseRestClient = Depends(get_supabase_client),
 ) -> CaptureCreateResponse:
-    values = _capture_values(req)
-    fingerprint = values["source_fingerprint"]
-    existing = None
-    if fingerprint:
-        existing = db.scalar(
-            select(Capture).where(
-                Capture.user_id == current_user.id,
-                Capture.source_fingerprint == fingerprint,
-            )
-        )
+    try:
+        row, created = client.create_or_update_capture(user_id, req)
+    except SupabaseApiError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
 
-    now = datetime.now(UTC)
-    if existing is not None:
-        for key, value in values.items():
-            setattr(existing, key, value)
-        existing.updated_at = now
-        db.add(existing)
-        db.commit()
-        db.refresh(existing)
-        response.status_code = status.HTTP_200_OK
-        return CaptureCreateResponse(id=existing.id, created=False, updated_at=existing.updated_at)
-
-    capture = Capture(user_id=current_user.id, **values)
-    db.add(capture)
-    db.commit()
-    db.refresh(capture)
-    response.status_code = status.HTTP_201_CREATED
-    return CaptureCreateResponse(id=capture.id, created=True, updated_at=capture.updated_at)
+    response.status_code = status.HTTP_201_CREATED if created else status.HTTP_200_OK
+    return CaptureCreateResponse(id=row["id"], created=created, updated_at=row["updated_at"])
 
 
 @router.get("", response_model=list[CaptureListItem])
 def list_captures(
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    user_id: str = Depends(current_user_id),
+    client: SupabaseRestClient = Depends(get_supabase_client),
 ) -> list[CaptureListItem]:
-    captures = db.scalars(
-        select(Capture)
-        .where(Capture.user_id == current_user.id)
-        .order_by(desc(Capture.created_at))
-    ).all()
-    return [_capture_item(capture) for capture in captures]
+    try:
+        return [_capture_item(row) for row in client.list_captures(user_id)]
+    except SupabaseApiError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
 
 
 @router.get("/{capture_id}", response_model=CaptureDetailResponse)
 def get_capture(
     capture_id: UUID,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    user_id: str = Depends(current_user_id),
+    client: SupabaseRestClient = Depends(get_supabase_client),
 ) -> CaptureDetailResponse:
-    capture = db.get(Capture, capture_id)
-    if capture is None or capture.user_id != current_user.id:
+    try:
+        row = client.get_capture(user_id, str(capture_id))
+    except SupabaseApiError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+    if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Capture not found")
-    return _capture_detail(capture)
+    return _capture_detail(row)
 
 
 @router.delete("/{capture_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_capture(
     capture_id: UUID,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    user_id: str = Depends(current_user_id),
+    client: SupabaseRestClient = Depends(get_supabase_client),
 ) -> Response:
-    capture = db.get(Capture, capture_id)
-    if capture is None or capture.user_id != current_user.id:
+    try:
+        deleted = client.delete_capture(user_id, str(capture_id))
+    except SupabaseApiError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+    if not deleted:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Capture not found")
-    db.delete(capture)
-    db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)

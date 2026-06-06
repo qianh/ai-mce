@@ -3,9 +3,76 @@ from fastapi.testclient import TestClient
 from app.main import create_app
 
 
-def make_client(tmp_path):
-    db_url = f"sqlite:///{tmp_path / 'captures.db'}"
-    return TestClient(create_app(database_url=db_url, create_schema=True))
+class FakeSupabaseClient:
+    def __init__(self):
+        self.users: dict[str, dict] = {}
+        self.tokens: dict[str, str] = {}
+        self.captures: dict[str, list[dict]] = {}
+        self.next_user = 1
+        self.next_capture = 1
+
+    def register(self, email: str, password: str) -> dict:
+        user_id = f"00000000-0000-0000-0000-{self.next_user:012d}"
+        self.next_user += 1
+        user = {"id": user_id, "email": email, "password_hash": f"hash:{password}"}
+        self.users[email] = user
+        return user
+
+    def store_refresh_token(self, user_id: str, refresh_token: str, expires_at) -> None:
+        self.tokens[refresh_token] = user_id
+
+    def create_or_update_capture(self, user_id: str, req) -> tuple[dict, bool]:
+        rows = self.captures.setdefault(user_id, [])
+        fingerprint = req.hashes.get("source_fingerprint") or ""
+        existing = next((row for row in rows if row["source_fingerprint"] == fingerprint and fingerprint), None)
+        row = self._row_from_request(req, user_id, existing["id"] if existing else None)
+        if existing:
+            existing.update(row)
+            return existing, False
+        rows.insert(0, row)
+        return row, True
+
+    def list_captures(self, user_id: str) -> list[dict]:
+        return list(self.captures.get(user_id, []))
+
+    def get_capture(self, user_id: str, capture_id: str) -> dict | None:
+        return next((row for row in self.captures.get(user_id, []) if row["id"] == capture_id), None)
+
+    def delete_capture(self, user_id: str, capture_id: str) -> bool:
+        rows = self.captures.get(user_id, [])
+        before = len(rows)
+        self.captures[user_id] = [row for row in rows if row["id"] != capture_id]
+        return len(self.captures[user_id]) != before
+
+    def _row_from_request(self, req, user_id: str, capture_id: str | None) -> dict:
+        capture_id = capture_id or f"10000000-0000-0000-0000-{self.next_capture:012d}"
+        if capture_id.endswith(f"{self.next_capture:012d}"):
+            self.next_capture += 1
+        messages = list(req.content.get("messages") or [])
+        return {
+            "id": capture_id,
+            "user_id": user_id,
+            "source_platform": req.source["platform"],
+            "source_url": req.source["url"],
+            "source_title": req.content.get("title") or req.source.get("browser_title") or "",
+            "content_hash": req.hashes["content_hash"],
+            "source_fingerprint": req.hashes.get("source_fingerprint") or "",
+            "extraction_quality": req.extraction_quality,
+            "metadata": {
+                "source": req.source,
+                "metadata": req.metadata or {},
+                "message_hashes": req.hashes.get("message_hashes") or [],
+            },
+            "messages": messages,
+            "analysis_status": "not_started",
+            "message_count": len(messages),
+            "created_at": "2026-06-05T10:00:00Z",
+            "updated_at": "2026-06-05T10:00:00Z",
+        }
+
+
+def make_client():
+    return TestClient(create_app(supabase_client=FakeSupabaseClient()))
 
 
 def register(client: TestClient, email: str) -> str:
@@ -49,8 +116,8 @@ def payload(title: str = "Cloud Mode Spec", fingerprint: str = "chatgpt:abc") ->
     }
 
 
-def test_create_list_detail_and_no_ai_analysis(tmp_path):
-    client = make_client(tmp_path)
+def test_create_list_detail_and_no_ai_analysis():
+    client = make_client()
     token = register(client, "a@example.com")
 
     created = client.post("/v1/captures", json=payload(), headers=auth(token))
@@ -72,8 +139,8 @@ def test_create_list_detail_and_no_ai_analysis(tmp_path):
     assert detail.json()["analysis_status"] == "not_started"
 
 
-def test_upsert_by_user_and_source_fingerprint(tmp_path):
-    client = make_client(tmp_path)
+def test_upsert_by_user_and_source_fingerprint():
+    client = make_client()
     token = register(client, "a@example.com")
 
     first = client.post("/v1/captures", json=payload(title="First"), headers=auth(token))
@@ -89,8 +156,8 @@ def test_upsert_by_user_and_source_fingerprint(tmp_path):
     assert listed[0]["source_title"] == "Updated"
 
 
-def test_users_are_isolated_for_list_detail_and_delete(tmp_path):
-    client = make_client(tmp_path)
+def test_users_are_isolated_for_list_detail_and_delete():
+    client = make_client()
     token_a = register(client, "a@example.com")
     token_b = register(client, "b@example.com")
 
