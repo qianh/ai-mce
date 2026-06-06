@@ -3,7 +3,12 @@ import { upsertCapture, insertCapture, getCaptureByFingerprint, upsertCloudCaptu
 import { getSettings, setSetting } from '../db/repos/settings';
 import type { ExtractedConversation, SaveRequest, SaveResult, Settings } from '../lib/types';
 import { createContextMenuSelectionConversation } from '../lib/context-menu-selection';
-import { uploadCaptureWithSessionRefresh } from '../lib/cloud-session';
+import {
+  CLOUD_SESSION_ALARM,
+  refreshCloudSessionIfNeeded,
+  syncCloudSessionSchedule,
+  uploadCaptureWithSessionRefresh,
+} from '../lib/cloud-session';
 import { detectSensitive } from '../lib/sensitive';
 import { saveConversation } from '../lib/save-handler';
 
@@ -50,6 +55,12 @@ export default defineBackground(async () => {
     }
   });
 
+  chrome.alarms.onAlarm.addListener((alarm) => {
+    if (alarm.name === CLOUD_SESSION_ALARM) {
+      void refreshCloudSessionIfNeeded({ getSettings, setSetting });
+    }
+  });
+
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     switch (msg.type) {
       case 'SAVE_REQUEST':
@@ -69,6 +80,9 @@ export default defineBackground(async () => {
   });
 
   await ensureReady();
+  const settings = await getSettings();
+  await syncCloudSessionSchedule(settings);
+  await refreshCloudSessionIfNeeded({ getSettings, setSetting });
 });
 
 async function handleSave(req: SaveRequest, sendResponse: (r: SaveResult) => void) {
@@ -104,8 +118,8 @@ async function saveCapturedConversation(
       return insertCapture(conv, options);
     },
     saveCloudLink: upsertCloudCaptureLink,
-    uploadCapture: async (accessToken, conv) => {
-      return uploadCaptureWithSessionRefresh(accessToken, conv, { getSettings, setSetting });
+    uploadCapture: async (conv) => {
+      return uploadCaptureWithSessionRefresh(conv, { getSettings, setSetting });
     },
     hasSensitiveContent: (conv) => detectSensitive(conv.content.messages).has_sensitive,
   }, { confirmedSensitiveUpload });

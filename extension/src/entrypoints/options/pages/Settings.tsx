@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { getSettings, setSetting } from '../../../db/repos/settings';
 import { CloudApiError, createCloudApiClient, type CloudAuthResponse } from '../../../lib/cloud-api';
+import { refreshCloudSessionIfNeeded, syncCloudSessionSchedule } from '../../../lib/cloud-session';
 import type { Settings as SettingsType } from '../../../lib/types';
 
 export default function Settings() {
@@ -20,8 +21,11 @@ export default function Settings() {
   };
 
   const setStorageMode = async (mode: SettingsType['storage_mode']) => {
+    if (!settings) return;
+    const nextSettings = { ...settings, storage_mode: mode };
     await setSetting('storage_mode', mode);
-    setSettings((s) => s ? { ...s, storage_mode: mode } : s);
+    setSettings(nextSettings);
+    await syncCloudSessionSchedule(nextSettings);
   };
 
   const updateApiBaseUrl = async (value: string) => {
@@ -40,13 +44,16 @@ export default function Settings() {
       await setSetting('cloud_access_token', result.access_token);
       await setSetting('cloud_refresh_token', result.refresh_token);
       await setSetting('cloud_user_email', result.user.email);
-      setSettings((s) => s ? {
-        ...s,
-        storage_mode: 'cloud',
+      const nextSettings = {
+        ...settings,
+        storage_mode: 'cloud' as const,
         cloud_access_token: result.access_token,
         cloud_refresh_token: result.refresh_token,
         cloud_user_email: result.user.email,
-      } : s);
+      };
+      setSettings(nextSettings);
+      await syncCloudSessionSchedule(nextSettings);
+      await refreshCloudSessionIfNeeded({ getSettings, setSetting });
     } catch (error) {
       setAuthError(error instanceof CloudApiError ? error.message : '登录或注册失败，请重试');
     } finally {
@@ -66,12 +73,14 @@ export default function Settings() {
     await setSetting('cloud_access_token', null);
     await setSetting('cloud_refresh_token', null);
     await setSetting('cloud_user_email', null);
-    setSettings((s) => s ? {
-      ...s,
+    const nextSettings = {
+      ...settings,
       cloud_access_token: undefined,
       cloud_refresh_token: undefined,
       cloud_user_email: undefined,
-    } : s);
+    };
+    setSettings(nextSettings);
+    await syncCloudSessionSchedule(nextSettings);
   };
 
   const exportDb = () => {
@@ -94,7 +103,7 @@ export default function Settings() {
 
   const isAuto = settings.report_mode === 'auto';
   const isCloud = settings.storage_mode === 'cloud';
-  const isLoggedIn = Boolean(settings.cloud_user_email && settings.cloud_access_token);
+  const isLoggedIn = Boolean(settings.cloud_user_email && settings.cloud_refresh_token);
 
   return (
     <div style={{ maxWidth: 600 }}>

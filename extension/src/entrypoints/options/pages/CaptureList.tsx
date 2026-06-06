@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { dbInit } from '../../../db/bridge';
 import { listCaptures } from '../../../db/repos/captures';
-import { getSettings } from '../../../db/repos/settings';
-import { createCloudApiClient, type CloudCaptureListItem } from '../../../lib/cloud-api';
+import { getSettings, setSetting } from '../../../db/repos/settings';
+import type { CloudCaptureListItem } from '../../../lib/cloud-api';
+import { listCapturesWithSessionRefresh } from '../../../lib/cloud-session';
 import type { Capture } from '../../../lib/types';
 
 export default function CaptureList() {
@@ -22,9 +23,10 @@ export default function CaptureList() {
       const [localCaptures, settings] = await Promise.all([listCaptures(), getSettings()]);
       let mergedCaptures = localCaptures;
 
-      if (settings.cloud_access_token) {
+      const hasCloudSession = Boolean(settings.cloud_refresh_token);
+      if (hasCloudSession) {
         try {
-          const cloudCaptures = await createCloudApiClient(settings.api_base_url).listCaptures(settings.cloud_access_token);
+          const cloudCaptures = await listCapturesWithSessionRefresh({ getSettings, setSetting });
           mergedCaptures = mergeCaptures(localCaptures, cloudCaptures);
         } catch {
           mergedCaptures = localCaptures;
@@ -33,7 +35,7 @@ export default function CaptureList() {
 
       if (!cancelled) {
         setCaptures(mergedCaptures);
-        setCanUploadCloud(Boolean(settings.cloud_access_token));
+        setCanUploadCloud(hasCloudSession);
         setLoading(false);
       }
     }

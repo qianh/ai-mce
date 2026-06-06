@@ -10,7 +10,7 @@ type SaveDeps = {
   getSettings: () => Promise<Settings>;
   saveLocal: (conversation: ExtractedConversation, uploadError?: string) => Promise<string>;
   saveCloudLink: (conversation: ExtractedConversation, cloudCaptureId: string, uploadedAt: string) => Promise<string>;
-  uploadCapture: (accessToken: string, conversation: ExtractedConversation) => Promise<UploadResult>;
+  uploadCapture: (conversation: ExtractedConversation) => Promise<UploadResult>;
   hasSensitiveContent: (conversation: ExtractedConversation) => boolean;
 };
 
@@ -22,7 +22,7 @@ export async function saveConversation(conversation: ExtractedConversation, deps
   await deps.ensureReady();
   const settings = await deps.getSettings();
 
-  if (settings.storage_mode !== 'cloud' || !settings.cloud_access_token) {
+  if (settings.storage_mode !== 'cloud' || !settings.cloud_refresh_token) {
     const captureId = await deps.saveLocal(conversation, undefined);
     return { type: 'SAVE_RESULT', success: true, capture_id: captureId, storage_state: 'local' };
   }
@@ -39,7 +39,7 @@ export async function saveConversation(conversation: ExtractedConversation, deps
   }
 
   try {
-    const uploaded = await deps.uploadCapture(settings.cloud_access_token, conversation);
+    const uploaded = await deps.uploadCapture(conversation);
     const captureId = await deps.saveCloudLink(conversation, uploaded.id, uploaded.updated_at);
     return { type: 'SAVE_RESULT', success: true, capture_id: captureId, storage_state: 'cloud' };
   } catch {

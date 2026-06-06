@@ -66,6 +66,7 @@ describe('save routing', () => {
       getSettings: vi.fn().mockResolvedValue(settings({
         storage_mode: 'cloud',
         cloud_access_token: 'access',
+        cloud_refresh_token: 'refresh',
       })),
       saveLocal: vi.fn(),
       saveCloudLink: vi.fn().mockResolvedValue('local-cloud-link'),
@@ -78,7 +79,7 @@ describe('save routing', () => {
       capture_id: 'local-cloud-link',
       storage_state: 'cloud',
     });
-    expect(deps.uploadCapture).toHaveBeenCalledWith('access', conversation);
+    expect(deps.uploadCapture).toHaveBeenCalledWith(conversation);
     expect(deps.saveCloudLink).toHaveBeenCalledWith(conversation, 'cloud-1', '2026-06-05T00:00:01.000Z');
     expect(deps.saveLocal).not.toHaveBeenCalled();
   });
@@ -89,6 +90,7 @@ describe('save routing', () => {
       getSettings: vi.fn().mockResolvedValue(settings({
         storage_mode: 'cloud',
         cloud_access_token: 'access',
+        cloud_refresh_token: 'refresh',
       })),
       saveLocal: vi.fn().mockResolvedValue('local-fallback'),
       saveCloudLink: vi.fn(),
@@ -124,7 +126,30 @@ describe('save routing', () => {
       capture_id: 'local-cloud-link',
       storage_state: 'cloud',
     });
-    expect(deps.uploadCapture).toHaveBeenCalledWith('expired-access', conversation);
+    expect(deps.uploadCapture).toHaveBeenCalledWith(conversation);
+    expect(deps.saveCloudLink).toHaveBeenCalledWith(conversation, 'cloud-1', '2026-06-06T00:00:01.000Z');
+    expect(deps.saveLocal).not.toHaveBeenCalled();
+  });
+
+  it('stores cloud metadata when only the refresh token remains', async () => {
+    const deps = {
+      ensureReady: vi.fn().mockResolvedValue(undefined),
+      getSettings: vi.fn().mockResolvedValue(settings({
+        storage_mode: 'cloud',
+        cloud_refresh_token: 'refresh',
+      })),
+      saveLocal: vi.fn(),
+      saveCloudLink: vi.fn().mockResolvedValue('local-cloud-link'),
+      uploadCapture: vi.fn().mockResolvedValue({ id: 'cloud-1', updated_at: '2026-06-06T00:00:01.000Z' }),
+      hasSensitiveContent: vi.fn().mockReturnValue(false),
+    };
+
+    await expect(saveConversation(conversation, deps)).resolves.toMatchObject({
+      success: true,
+      capture_id: 'local-cloud-link',
+      storage_state: 'cloud',
+    });
+    expect(deps.uploadCapture).toHaveBeenCalledWith(conversation);
     expect(deps.saveCloudLink).toHaveBeenCalledWith(conversation, 'cloud-1', '2026-06-06T00:00:01.000Z');
     expect(deps.saveLocal).not.toHaveBeenCalled();
   });
@@ -135,6 +160,7 @@ describe('save routing', () => {
       getSettings: vi.fn().mockResolvedValue(settings({
         storage_mode: 'cloud',
         cloud_access_token: 'access',
+        cloud_refresh_token: 'refresh',
       })),
       saveLocal: vi.fn().mockResolvedValue('local-sensitive'),
       saveCloudLink: vi.fn(),

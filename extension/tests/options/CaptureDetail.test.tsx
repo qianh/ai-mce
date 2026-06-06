@@ -28,15 +28,9 @@ vi.mock('../../src/db/repos/settings', () => ({
   setSetting,
 }));
 
-vi.mock('../../src/lib/cloud-api', () => ({
-  createCloudApiClient: vi.fn(() => ({
-    getCapture: getCloudCapture,
-    deleteCapture: deleteCloudCapture,
-    uploadCapture: uploadCloudCapture,
-  })),
-}));
-
 vi.mock('../../src/lib/cloud-session', () => ({
+  getCaptureWithSessionRefresh: getCloudCapture,
+  deleteCaptureWithSessionRefresh: deleteCloudCapture,
   uploadCaptureWithSessionRefresh: uploadCloudCapture,
 }));
 
@@ -119,7 +113,26 @@ describe('CaptureDetail cloud behavior', () => {
   it('loads cloud detail when local full text is absent', async () => {
     const { container, root } = await renderDetail();
 
-    expect(getCloudCapture).toHaveBeenCalledWith('access', 'cloud-1');
+    expect(getCloudCapture).toHaveBeenCalledWith('cloud-1', expect.objectContaining({ getSettings, setSetting }));
+    expect(container.textContent).toContain('Remote full text');
+
+    root.unmount();
+    container.remove();
+  });
+
+  it('loads cloud detail when only the refresh token remains', async () => {
+    getSettings.mockResolvedValue({
+      report_mode: 'manual',
+      storage_mode: 'cloud',
+      api_base_url: 'http://localhost:8000',
+      cloud_refresh_token: 'refresh',
+      cloud_user_email: 'me@example.com',
+      schema_version: 3,
+    });
+
+    const { container, root } = await renderDetail();
+
+    expect(getCloudCapture).toHaveBeenCalledWith('cloud-1', expect.objectContaining({ getSettings, setSetting }));
     expect(container.textContent).toContain('Remote full text');
 
     root.unmount();
@@ -147,7 +160,7 @@ describe('CaptureDetail cloud behavior', () => {
 
     const { container, root } = await renderDetail('/capture/cloud:cloud-9');
 
-    expect(getCloudCapture).toHaveBeenCalledWith('access', 'cloud-9');
+    expect(getCloudCapture).toHaveBeenCalledWith('cloud-9', expect.objectContaining({ getSettings, setSetting }));
     expect(container.textContent).toContain('Remote only full text');
 
     root.unmount();
@@ -163,9 +176,57 @@ describe('CaptureDetail cloud behavior', () => {
       deleteButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     });
 
-    expect(deleteCloudCapture).toHaveBeenCalledWith('access', 'cloud-1');
+    expect(deleteCloudCapture).toHaveBeenCalledWith('cloud-1', expect.objectContaining({ getSettings, setSetting }));
     expect(deleteCapture).toHaveBeenCalledWith('local-1');
     expect(navigate).toHaveBeenCalledWith('/');
+
+    root.unmount();
+    container.remove();
+  });
+
+  it('keeps the local record when cloud delete fails', async () => {
+    deleteCloudCapture.mockRejectedValue(new Error('network down'));
+    const confirm = vi.fn().mockReturnValueOnce(true);
+    vi.stubGlobal('confirm', confirm);
+    const { container, root } = await renderDetail();
+    const deleteButton = Array.from(container.querySelectorAll('button'))
+      .find((button) => button.textContent === '删除');
+
+    await act(async () => {
+      deleteButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await flushEffects();
+
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(container.textContent).toContain('network down');
+    expect(deleteCapture).not.toHaveBeenCalled();
+    expect(navigate).not.toHaveBeenCalled();
+
+    root.unmount();
+    container.remove();
+  });
+
+  it('keeps the local record when a cloud-backed capture cannot be deleted from cloud', async () => {
+    getSettings.mockResolvedValue({
+      report_mode: 'manual',
+      storage_mode: 'cloud',
+      api_base_url: 'http://localhost:8000',
+      cloud_user_email: 'me@example.com',
+      schema_version: 3,
+    });
+    const { container, root } = await renderDetail();
+    const deleteButton = Array.from(container.querySelectorAll('button'))
+      .find((button) => button.textContent === '删除');
+
+    await act(async () => {
+      deleteButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await flushEffects();
+
+    expect(deleteCloudCapture).not.toHaveBeenCalled();
+    expect(container.textContent).toContain('请先在设置页登录云端');
+    expect(deleteCapture).not.toHaveBeenCalled();
+    expect(navigate).not.toHaveBeenCalled();
 
     root.unmount();
     container.remove();
@@ -183,7 +244,6 @@ describe('CaptureDetail cloud behavior', () => {
     });
 
     expect(uploadCloudCapture).toHaveBeenCalledWith(
-      'access',
       expect.objectContaining({
         hashes: expect.objectContaining({
           source_fingerprint: 'chatgpt:abc',
@@ -199,6 +259,59 @@ describe('CaptureDetail cloud behavior', () => {
       'cloud-2',
       '2026-06-05T00:00:02.000Z'
     );
+
+    root.unmount();
+    container.remove();
+  });
+
+  it('uploads a local capture when only the refresh token remains', async () => {
+    getSettings.mockResolvedValue({
+      report_mode: 'manual',
+      storage_mode: 'cloud',
+      api_base_url: 'http://localhost:8000',
+      cloud_refresh_token: 'refresh',
+      cloud_user_email: 'me@example.com',
+      schema_version: 3,
+    });
+    getCaptureById.mockResolvedValue(localCapture);
+    getCaptureMessages.mockResolvedValue('user: Local full text');
+    const { container, root } = await renderDetail();
+    const uploadButton = Array.from(container.querySelectorAll('button'))
+      .find((button) => button.textContent === '上传云端');
+
+    await act(async () => {
+      uploadButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+
+    expect(uploadCloudCapture).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: expect.objectContaining({
+          messages: [expect.objectContaining({ content: 'Local full text' })],
+        }),
+      }),
+      expect.objectContaining({ getSettings, setSetting })
+    );
+
+    root.unmount();
+    container.remove();
+  });
+
+  it('shows an error and re-enables upload when cloud upload fails', async () => {
+    getCaptureById.mockResolvedValue(localCapture);
+    getCaptureMessages.mockResolvedValue('user: Local full text');
+    uploadCloudCapture.mockRejectedValue(new Error('upload failed'));
+    const { container, root } = await renderDetail();
+    const uploadButton = Array.from(container.querySelectorAll('button'))
+      .find((button) => button.textContent === '上传云端') as HTMLButtonElement;
+
+    await act(async () => {
+      uploadButton.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await flushEffects();
+
+    expect(container.textContent).toContain('upload failed');
+    expect(uploadButton.disabled).toBe(false);
+    expect(upsertCloudCaptureLink).not.toHaveBeenCalled();
 
     root.unmount();
     container.remove();

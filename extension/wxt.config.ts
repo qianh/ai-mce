@@ -12,6 +12,7 @@ export default defineConfig({
       'activeTab',
       'scripting',
       'contextMenus',
+      'alarms',
       'unlimitedStorage',
       'downloads',
       'offscreen',

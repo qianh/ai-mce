@@ -2,8 +2,12 @@ import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { deleteCapture, getCaptureById, getCaptureMessages, upsertCloudCaptureLink } from '../../../db/repos/captures';
 import { getSettings, setSetting } from '../../../db/repos/settings';
-import { createCloudApiClient, type CloudCaptureDetail } from '../../../lib/cloud-api';
-import { uploadCaptureWithSessionRefresh } from '../../../lib/cloud-session';
+import type { CloudCaptureDetail } from '../../../lib/cloud-api';
+import {
+  deleteCaptureWithSessionRefresh,
+  getCaptureWithSessionRefresh,
+  uploadCaptureWithSessionRefresh,
+} from '../../../lib/cloud-session';
 import type { Capture, ExtractedConversation, MessageRole } from '../../../lib/types';
 
 const ROLE_LABEL: Record<string, string> = {
@@ -42,77 +46,122 @@ export default function CaptureDetail() {
   const navigate = useNavigate();
   const [messages, setMessages] = useState<ParsedMessage[]>([]);
   const [capture, setCapture] = useState<Capture | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [uploadBusy, setUploadBusy] = useState(false);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+
+  const cloudSessionDeps = { getSettings, setSetting };
 
   useEffect(() => {
     if (!id) return;
-    Promise.all([getCaptureById(id), getCaptureMessages(id), getSettings()]).then(async ([row, text, settings]) => {
-      setCapture(row);
-      const cloudOnlyId = id.startsWith(CLOUD_ID_PREFIX) ? id.slice(CLOUD_ID_PREFIX.length) : null;
-      if (!row && cloudOnlyId && settings.cloud_access_token) {
-        const detail = await createCloudApiClient(settings.api_base_url).getCapture(settings.cloud_access_token, cloudOnlyId);
-        setCapture(cloudDetailToCapture(detail));
-        setMessages(cloudMessagesToParsed(detail.messages));
-        return;
+    let cancelled = false;
+
+    async function loadCaptureDetail() {
+      setLoadError(null);
+      try {
+        const [row, text, settings] = await Promise.all([getCaptureById(id!), getCaptureMessages(id!), getSettings()]);
+        if (cancelled) return;
+
+        setCapture(row);
+        const cloudOnlyId = id!.startsWith(CLOUD_ID_PREFIX) ? id!.slice(CLOUD_ID_PREFIX.length) : null;
+        const hasCloudSession = Boolean(settings.cloud_refresh_token);
+        if (!row && cloudOnlyId && hasCloudSession) {
+          const detail = await getCaptureWithSessionRefresh(cloudOnlyId, cloudSessionDeps);
+          if (cancelled) return;
+          setCapture(cloudDetailToCapture(detail));
+          setMessages(cloudMessagesToParsed(detail.messages));
+          return;
+        }
+        if (text) {
+          setMessages(parseMessages(text));
+          return;
+        }
+        if (row?.storage_state === 'cloud' && row.cloud_capture_id && hasCloudSession) {
+          const detail = await getCaptureWithSessionRefresh(row.cloud_capture_id, cloudSessionDeps);
+          if (cancelled) return;
+          setMessages(cloudMessagesToParsed(detail.messages));
+        }
+      } catch (error) {
+        if (cancelled) return;
+        setLoadError(error instanceof Error ? error.message : '加载失败');
       }
-      if (text) {
-        setMessages(parseMessages(text));
-        return;
-      }
-      if (row?.storage_state === 'cloud' && row.cloud_capture_id && settings.cloud_access_token) {
-        const detail = await createCloudApiClient(settings.api_base_url).getCapture(settings.cloud_access_token, row.cloud_capture_id);
-        setMessages(cloudMessagesToParsed(detail.messages));
-      }
-    });
+    }
+
+    void loadCaptureDetail();
+    return () => { cancelled = true; };
   }, [id]);
 
   const handleDelete = async () => {
-    if (!id) return;
+    if (!id || deleteBusy) return;
     if (confirm('确认删除此 Capture？此操作不可撤销。')) {
-      if (capture?.storage_state === 'cloud' && capture.cloud_capture_id) {
-        const settings = await getSettings();
-        if (settings.cloud_access_token) {
-          await createCloudApiClient(settings.api_base_url).deleteCapture(settings.cloud_access_token, capture.cloud_capture_id);
+      setActionError(null);
+      setDeleteBusy(true);
+      try {
+        if (capture?.storage_state === 'cloud' && capture.cloud_capture_id) {
+          const settings = await getSettings();
+          if (!settings.cloud_refresh_token) {
+            setActionError('请先在设置页登录云端。');
+            return;
+          }
+          await deleteCaptureWithSessionRefresh(capture.cloud_capture_id, cloudSessionDeps);
         }
+        await deleteCapture(id);
+        navigate('/');
+      } catch (error) {
+        setActionError(getErrorMessage(error, '删除失败'));
+      } finally {
+        setDeleteBusy(false);
       }
-      await deleteCapture(id);
-      navigate('/');
     }
   };
 
   const handleUploadCloud = async () => {
-    if (!capture || !messages.length) return;
-    const settings = await getSettings();
-    if (!settings.cloud_access_token) return;
+    if (!capture || !messages.length || uploadBusy) return;
+    setActionError(null);
+    setUploadBusy(true);
 
-    const conversation: ExtractedConversation = {
-      schema_version: '1',
-      extractor_version: 'manual-backfill',
-      source: {
-        platform: capture.source_platform as ExtractedConversation['source']['platform'],
-        url: capture.source_url,
-        browser_title: capture.source_title,
-        captured_at: capture.created_at,
-      },
-      content: {
-        title: capture.source_title,
-        messages: messages.map((message) => ({
-          role: message.role as MessageRole,
-          content: message.content,
-          index: message.index,
-        })),
-      },
-      extraction_quality: capture.extraction_quality,
-      hashes: {
-        content_hash: capture.content_hash,
-        message_hashes: [],
-        source_fingerprint: capture.source_fingerprint || `${capture.source_platform}:${capture.id}`,
-      },
-      metadata: { manual_backfill: true },
-    };
+    try {
+      const settings = await getSettings();
+      if (!settings.cloud_refresh_token) {
+        setActionError('请先在设置页登录云端。');
+        return;
+      }
 
-    const uploaded = await uploadCaptureWithSessionRefresh(settings.cloud_access_token, conversation, { getSettings, setSetting });
-    await upsertCloudCaptureLink(conversation, uploaded.id, uploaded.updated_at);
-    setCapture({ ...capture, storage_state: 'cloud', cloud_capture_id: uploaded.id, cloud_uploaded_at: uploaded.updated_at });
+      const conversation: ExtractedConversation = {
+        schema_version: '1',
+        extractor_version: 'manual-backfill',
+        source: {
+          platform: capture.source_platform as ExtractedConversation['source']['platform'],
+          url: capture.source_url,
+          browser_title: capture.source_title,
+          captured_at: capture.created_at,
+        },
+        content: {
+          title: capture.source_title,
+          messages: messages.map((message) => ({
+            role: message.role as MessageRole,
+            content: message.content,
+            index: message.index,
+          })),
+        },
+        extraction_quality: capture.extraction_quality,
+        hashes: {
+          content_hash: capture.content_hash,
+          message_hashes: [],
+          source_fingerprint: capture.source_fingerprint || `${capture.source_platform}:${capture.id}`,
+        },
+        metadata: { manual_backfill: true },
+      };
+
+      const uploaded = await uploadCaptureWithSessionRefresh(conversation, { getSettings, setSetting });
+      await upsertCloudCaptureLink(conversation, uploaded.id, uploaded.updated_at);
+      setCapture({ ...capture, storage_state: 'cloud', cloud_capture_id: uploaded.id, cloud_uploaded_at: uploaded.updated_at });
+    } catch (error) {
+      setActionError(getErrorMessage(error, '上传失败'));
+    } finally {
+      setUploadBusy(false);
+    }
   };
 
   return (
@@ -121,14 +170,26 @@ export default function CaptureDetail() {
         <button onClick={() => navigate('/')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-3)', fontSize: 13 }}>← 返回</button>
         <div style={{ fontSize: 20, fontWeight: 700, flex: 1 }}>对话原文</div>
         {capture && capture.storage_state !== 'cloud' && (
-          <button onClick={handleUploadCloud} style={{ padding: '7px 13px', borderRadius: 7, border: '1px solid var(--line-2)', background: 'var(--surface)', color: 'var(--ink)', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
-            上传云端
+          <button disabled={uploadBusy} onClick={handleUploadCloud} style={{ padding: '7px 13px', borderRadius: 7, border: '1px solid var(--line-2)', background: 'var(--surface)', color: 'var(--ink)', cursor: uploadBusy ? 'default' : 'pointer', fontSize: 13, fontWeight: 600, opacity: uploadBusy ? 0.7 : 1 }}>
+            {uploadBusy ? '上传中…' : '上传云端'}
           </button>
         )}
-        <button onClick={handleDelete} style={{ padding: '7px 13px', borderRadius: 7, border: '1px solid color-mix(in oklab, var(--danger-fg) 35%, transparent)', background: 'transparent', color: 'var(--danger-fg)', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
-          删除
+        <button disabled={deleteBusy} onClick={handleDelete} style={{ padding: '7px 13px', borderRadius: 7, border: '1px solid color-mix(in oklab, var(--danger-fg) 35%, transparent)', background: 'transparent', color: 'var(--danger-fg)', cursor: deleteBusy ? 'default' : 'pointer', fontSize: 13, fontWeight: 600, opacity: deleteBusy ? 0.7 : 1 }}>
+          {deleteBusy ? '删除中…' : '删除'}
         </button>
       </div>
+
+      {loadError && (
+        <div className="card" style={{ padding: '14px 16px', marginBottom: 14, color: 'var(--danger-fg)', fontSize: 13 }}>
+          无法加载云端内容：{loadError}。请前往设置页重新登录后再试。
+        </div>
+      )}
+
+      {actionError && (
+        <div className="card" style={{ padding: '14px 16px', marginBottom: 14, color: 'var(--danger-fg)', fontSize: 13 }}>
+          云端操作失败：{actionError}
+        </div>
+      )}
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {messages.map((msg) => {
@@ -152,6 +213,10 @@ export default function CaptureDetail() {
       </div>
     </div>
   );
+}
+
+function getErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback;
 }
 
 function cloudMessagesToParsed(messages: CloudCaptureDetail['messages']): ParsedMessage[] {

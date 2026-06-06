@@ -90,12 +90,15 @@ vi.mock('../../src/db/repos/captures', () => ({
   listCaptures: vi.fn().mockResolvedValue(captures),
 }));
 
+const setSetting = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+
 vi.mock('../../src/db/repos/settings', () => ({
   getSettings,
+  setSetting,
 }));
 
-vi.mock('../../src/lib/cloud-api', () => ({
-  createCloudApiClient: vi.fn(() => ({ listCaptures: listCloudCaptures })),
+vi.mock('../../src/lib/cloud-session', () => ({
+  listCapturesWithSessionRefresh: listCloudCaptures,
 }));
 
 async function flushEffects() {
@@ -145,10 +148,31 @@ describe('CaptureList', () => {
   it('fetches cloud captures and merges them without duplicating local cloud links', async () => {
     const { container, root } = await renderList();
 
-    expect(listCloudCaptures).toHaveBeenCalledWith('access');
+    expect(listCloudCaptures).toHaveBeenCalledWith(expect.objectContaining({ getSettings, setSetting }));
     expect(container.textContent).toContain('4 / 4 条');
     expect(container.textContent?.match(/gifgaff 卡使用指南/g)).toHaveLength(1);
     expect(container.textContent).toContain('另一设备上传的云端记录');
+
+    root.unmount();
+    container.remove();
+  });
+
+  it('fetches cloud captures when only the refresh token remains', async () => {
+    getSettings.mockResolvedValueOnce({
+      report_mode: 'manual',
+      storage_mode: 'cloud',
+      api_base_url: 'http://localhost:8000',
+      cloud_refresh_token: 'refresh',
+      cloud_user_email: 'me@example.com',
+      schema_version: 3,
+    });
+    listCloudCaptures.mockClear();
+
+    const { container, root } = await renderList();
+
+    expect(listCloudCaptures).toHaveBeenCalledWith(expect.objectContaining({ getSettings, setSetting }));
+    expect(container.textContent).toContain('另一设备上传的云端记录');
+    expect(container.textContent).toContain('上传云端');
 
     root.unmount();
     container.remove();

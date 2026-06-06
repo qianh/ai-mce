@@ -2,6 +2,7 @@ import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import Settings from '../../src/entrypoints/options/pages/Settings';
+import { CLOUD_SESSION_ALARM } from '../../src/lib/cloud-session';
 import type { Settings as SettingsType } from '../../src/lib/types';
 
 const getSettings = vi.hoisted(() => vi.fn());
@@ -63,6 +64,7 @@ describe('Settings cloud mode UI', () => {
     login.mockReset();
     register.mockReset();
     logout.mockReset();
+    Reflect.deleteProperty(chrome, 'alarms');
   });
 
   it('shows Local Mode as the default non-cloud path', async () => {
@@ -127,6 +129,34 @@ describe('Settings cloud mode UI', () => {
     container.remove();
   });
 
+  it('clears the refresh alarm when switching back to Local Mode', async () => {
+    const clear = vi.fn().mockResolvedValue(true);
+    const get = vi.fn().mockResolvedValue({ name: CLOUD_SESSION_ALARM });
+    const create = vi.fn().mockResolvedValue(undefined);
+    chrome.alarms = { clear, get, create } as unknown as typeof chrome.alarms;
+    const { container, root } = await renderSettings({
+      ...baseSettings,
+      storage_mode: 'cloud',
+      cloud_user_email: 'me@example.com',
+      cloud_refresh_token: 'refresh',
+      cloud_access_token: 'access',
+    });
+
+    const localButton = Array.from(container.querySelectorAll('button'))
+      .find((button) => button.textContent?.includes('个人本地版'));
+    await act(async () => {
+      localButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+
+    expect(setSetting).toHaveBeenCalledWith('storage_mode', 'local');
+    expect(clear).toHaveBeenCalledWith(CLOUD_SESSION_ALARM);
+    expect(get).not.toHaveBeenCalled();
+    expect(create).not.toHaveBeenCalled();
+
+    root.unmount();
+    container.remove();
+  });
+
   it('logs in and persists cloud session settings', async () => {
     login.mockResolvedValue({
       user: { id: 'user-1', email: 'me@example.com' },
@@ -177,6 +207,22 @@ describe('Settings cloud mode UI', () => {
     expect(setSetting).toHaveBeenCalledWith('cloud_access_token', null);
     expect(setSetting).toHaveBeenCalledWith('cloud_refresh_token', null);
     expect(setSetting).toHaveBeenCalledWith('cloud_user_email', null);
+
+    root.unmount();
+    container.remove();
+  });
+
+  it('treats refresh-token-only sessions as logged in', async () => {
+    const { container, root } = await renderSettings({
+      ...baseSettings,
+      storage_mode: 'cloud',
+      cloud_user_email: 'me@example.com',
+      cloud_refresh_token: 'refresh',
+    });
+
+    expect(container.textContent).toContain('me@example.com');
+    expect(container.textContent).toContain('退出登录');
+    expect(container.querySelector('input[aria-label="邮箱"]')).toBeNull();
 
     root.unmount();
     container.remove();
