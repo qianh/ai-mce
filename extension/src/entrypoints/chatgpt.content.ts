@@ -7,8 +7,7 @@ export default defineContentScript({
     chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       if (msg.type === 'EXTRACT_CONVERSATION') {
         chatgptExtractor.extract(document, location.href).then((conversation) => {
-          const sensitive = detectSensitive(conversation.content.messages);
-          sendResponse({ type: 'EXTRACTION_RESULT', conversation, sensitive });
+          sendResponse({ type: 'EXTRACTION_RESULT', conversation, sensitive: detectSensitive(conversation.content.messages) });
         }).catch((err) => {
           sendResponse({ type: 'EXTRACTION_ERROR', error: String(err) });
         });

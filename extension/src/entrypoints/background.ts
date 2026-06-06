@@ -9,7 +9,6 @@ import {
   syncCloudSessionSchedule,
   uploadCaptureWithSessionRefresh,
 } from '../lib/cloud-session';
-import { detectSensitive } from '../lib/sensitive';
 import { saveConversation } from '../lib/save-handler';
 
 async function ensureOffscreenDocument() {
@@ -100,12 +99,12 @@ async function saveSelectionFromContextMenu(
 ): Promise<SaveResult | null> {
   const conversation = await createContextMenuSelectionConversation(info, tab);
   if (!conversation) return null;
-  return saveCapturedConversation(conversation, false);
+  return saveCapturedConversation(conversation);
 }
 
 async function saveCapturedConversation(
   conversation: ExtractedConversation,
-  confirmedSensitiveUpload: boolean
+  confirmedSensitiveUpload = false,
 ): Promise<SaveResult> {
   return saveConversation(conversation, {
     ensureReady,
@@ -121,7 +120,6 @@ async function saveCapturedConversation(
     uploadCapture: async (conv) => {
       return uploadCaptureWithSessionRefresh(conv, { getSettings, setSetting });
     },
-    hasSensitiveContent: (conv) => detectSensitive(conv.content.messages).has_sensitive,
   }, { confirmedSensitiveUpload });
 }
 

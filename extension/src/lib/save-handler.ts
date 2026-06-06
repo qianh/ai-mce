@@ -1,4 +1,5 @@
 import type { ExtractedConversation, SaveResult, Settings } from './types';
+import { detectSensitive } from './sensitive';
 
 type UploadResult = {
   id: string;
@@ -11,14 +12,17 @@ type SaveDeps = {
   saveLocal: (conversation: ExtractedConversation, uploadError?: string) => Promise<string>;
   saveCloudLink: (conversation: ExtractedConversation, cloudCaptureId: string, uploadedAt: string) => Promise<string>;
   uploadCapture: (conversation: ExtractedConversation) => Promise<UploadResult>;
-  hasSensitiveContent: (conversation: ExtractedConversation) => boolean;
 };
 
 type SaveOptions = {
   confirmedSensitiveUpload?: boolean;
 };
 
-export async function saveConversation(conversation: ExtractedConversation, deps: SaveDeps, options: SaveOptions = {}): Promise<SaveResult> {
+export async function saveConversation(
+  conversation: ExtractedConversation,
+  deps: SaveDeps,
+  options: SaveOptions = {},
+): Promise<SaveResult> {
   await deps.ensureReady();
   const settings = await deps.getSettings();
 
@@ -27,14 +31,15 @@ export async function saveConversation(conversation: ExtractedConversation, deps
     return { type: 'SAVE_RESULT', success: true, capture_id: captureId, storage_state: 'local' };
   }
 
-  if (deps.hasSensitiveContent(conversation) && !options.confirmedSensitiveUpload) {
-    const captureId = await deps.saveLocal(conversation, 'SENSITIVE_UPLOAD_REQUIRES_CONFIRMATION');
+  const sensitive = detectSensitive(conversation.content.messages);
+  if (sensitive.has_sensitive && !options.confirmedSensitiveUpload) {
+    const captureId = await deps.saveLocal(conversation, 'SENSITIVE_UPLOAD_NOT_CONFIRMED');
     return {
       type: 'SAVE_RESULT',
       success: true,
       capture_id: captureId,
       storage_state: 'local',
-      upload_error: 'SENSITIVE_UPLOAD_REQUIRES_CONFIRMATION',
+      upload_error: 'SENSITIVE_UPLOAD_NOT_CONFIRMED',
     };
   }
 

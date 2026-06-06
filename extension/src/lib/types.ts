@@ -50,14 +50,15 @@ export interface ExtractedConversation {
   };
 }
 
-// ─── Sensitive Detection ──────────────────────────────────────────────────────
-
-export type SensitiveType = 'api_key' | 'token' | 'password' | 'email' | 'phone' | 'id_number';
+export type SensitiveType = 'api_key' | 'token' | 'email' | 'phone' | 'id_number' | 'password';
 
 export interface SensitiveMatch {
   type: SensitiveType;
   masked: string;
   message_index: number;
+  /** Short excerpt around the match for preview/warning display */
+  context?: string;
+  value?: string;
 }
 
 export interface SensitiveResult {

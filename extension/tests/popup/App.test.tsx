@@ -31,6 +31,14 @@ const conversation: ExtractedConversation = {
   },
 };
 
+const sensitiveConversation: ExtractedConversation = {
+  ...conversation,
+  content: {
+    ...conversation.content,
+    messages: [{ role: 'user', content: 'my key is sk-xxxPERPLEXITY', index: 0 }],
+  },
+};
+
 async function flushEffects() {
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -86,6 +94,87 @@ describe('popup save result handling', () => {
 
     expect(container.textContent).toContain('已保存到本地');
     expect(container.textContent).toContain('稍后上传云端');
+
+    root.unmount();
+    container.remove();
+  });
+
+  it('shows sensitive detection details without blocking save, and sends confirmation on click', async () => {
+    (chrome.tabs.sendMessage as unknown as ReturnType<typeof vi.fn>).mockImplementation((_tabId, msg, callback) => {
+      if (msg.type === 'EXTRACT_CONVERSATION') {
+        callback({
+          type: 'EXTRACTION_RESULT',
+          conversation,
+          sensitive: {
+            has_sensitive: true,
+            matches: [{ type: 'api_key', value: 'sk-xxxPERPLEXITY', masked: 'sk-••••XITY', message_index: 0 }],
+          },
+        });
+      }
+    });
+    (chrome.runtime.sendMessage as unknown as ReturnType<typeof vi.fn>).mockImplementation((_msg, callback) => {
+      callback({
+        type: 'SAVE_RESULT',
+        success: true,
+        capture_id: 'cloud-accepted',
+        storage_state: 'cloud',
+      });
+    });
+
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(<App />);
+    });
+    await flushEffects();
+
+    expect(container.textContent).toContain('检测到 1 处可能的敏感信息');
+    expect(container.textContent).toContain('API Key');
+    expect(container.textContent).toContain('sk-••••XITY');
+    expect(container.textContent).toContain('保存到 AI Memory');
+    const saveButton = Array.from(container.querySelectorAll('button'))
+      .find((button) => button.textContent?.includes('保存到 AI Memory'));
+    await act(async () => {
+      saveButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+
+    expect(chrome.runtime.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'SAVE_REQUEST',
+        conversation,
+        confirmed_sensitive_upload: true,
+      }),
+      expect.any(Function),
+    );
+
+    root.unmount();
+    container.remove();
+  });
+
+  it('falls back to local popup detection when extraction returns an empty sensitive result', async () => {
+    (chrome.tabs.sendMessage as unknown as ReturnType<typeof vi.fn>).mockImplementation((_tabId, msg, callback) => {
+      if (msg.type === 'EXTRACT_CONVERSATION') {
+        callback({
+          type: 'EXTRACTION_RESULT',
+          conversation: sensitiveConversation,
+          sensitive: { has_sensitive: false, matches: [] },
+        });
+      }
+    });
+
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(<App />);
+    });
+    await flushEffects();
+
+    expect(container.textContent).toContain('检测到 1 处可能的敏感信息');
+    expect(container.textContent).toContain('sk-••••XITY');
 
     root.unmount();
     container.remove();

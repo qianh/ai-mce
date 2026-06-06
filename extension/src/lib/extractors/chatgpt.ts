@@ -137,6 +137,13 @@ export class ChatGPTExtractor implements ConversationExtractor {
   private extractText(node: Element): string {
     const clone = node.cloneNode(true) as Element;
     clone.querySelectorAll('button, [data-testid="copy-turn-action-button"]').forEach((el) => el.remove());
+    clone.querySelectorAll('br').forEach((el) => el.replaceWith('\n'));
+    clone.querySelectorAll('pre, code').forEach((el) => {
+      const text = el.textContent ?? '';
+      if (text && !text.endsWith('\n')) {
+        el.appendChild(document.createTextNode('\n'));
+      }
+    });
     return (clone.textContent ?? '').replace(/\n{3,}/g, '\n\n').trim();
   }
 

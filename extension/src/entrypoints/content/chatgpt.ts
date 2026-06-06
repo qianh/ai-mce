@@ -39,10 +39,7 @@ export default defineContentScript({
         const settings = await chrome.runtime.sendMessage({ type: 'GET_SETTINGS' });
         if (settings?.report_mode !== 'auto') return;
         const conversation = await chatgptExtractor.extract(document, location.href);
-        const sensitive = detectSensitive(conversation.content.messages);
-        if (!sensitive.has_sensitive) {
-          chrome.runtime.sendMessage({ type: 'SAVE_REQUEST', conversation });
-        }
+        chrome.runtime.sendMessage({ type: 'SAVE_REQUEST', conversation });
       }, 500);
     });
     streamObserver.observe(document.body, { childList: true, subtree: true, characterData: true });
@@ -50,8 +47,7 @@ export default defineContentScript({
     chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       if (msg.type === 'EXTRACT_CONVERSATION') {
         chatgptExtractor.extract(document, location.href).then((conversation) => {
-          const sensitive = detectSensitive(conversation.content.messages);
-          sendResponse({ type: 'EXTRACTION_RESULT', conversation, sensitive });
+          sendResponse({ type: 'EXTRACTION_RESULT', conversation, sensitive: detectSensitive(conversation.content.messages) });
         }).catch((err) => {
           sendResponse({ type: 'EXTRACTION_ERROR', error: String(err) });
         });

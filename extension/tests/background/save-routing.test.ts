@@ -30,6 +30,14 @@ const conversation: ExtractedConversation = {
   metadata: { conversation_id: 'abc' },
 };
 
+const sensitiveConversation: ExtractedConversation = {
+  ...conversation,
+  content: {
+    ...conversation.content,
+    messages: [{ role: 'user', content: 'Here is my key: sk-xxxPERPLEXITY', index: 0 }],
+  },
+};
+
 function settings(overrides: Partial<Settings>): Settings {
   return {
     report_mode: 'manual',
@@ -48,7 +56,6 @@ describe('save routing', () => {
       saveLocal: vi.fn().mockResolvedValue('local-1'),
       saveCloudLink: vi.fn(),
       uploadCapture: vi.fn(),
-      hasSensitiveContent: vi.fn().mockReturnValue(false),
     };
 
     await expect(saveConversation(conversation, deps)).resolves.toMatchObject({
@@ -71,7 +78,6 @@ describe('save routing', () => {
       saveLocal: vi.fn(),
       saveCloudLink: vi.fn().mockResolvedValue('local-cloud-link'),
       uploadCapture: vi.fn().mockResolvedValue({ id: 'cloud-1', updated_at: '2026-06-05T00:00:01.000Z' }),
-      hasSensitiveContent: vi.fn().mockReturnValue(false),
     };
 
     await expect(saveConversation(conversation, deps)).resolves.toMatchObject({
@@ -95,7 +101,6 @@ describe('save routing', () => {
       saveLocal: vi.fn().mockResolvedValue('local-fallback'),
       saveCloudLink: vi.fn(),
       uploadCapture: vi.fn().mockRejectedValue(new Error('network')),
-      hasSensitiveContent: vi.fn().mockReturnValue(false),
     };
 
     await expect(saveConversation(conversation, deps)).resolves.toMatchObject({
@@ -118,7 +123,6 @@ describe('save routing', () => {
       saveLocal: vi.fn(),
       saveCloudLink: vi.fn().mockResolvedValue('local-cloud-link'),
       uploadCapture: vi.fn().mockResolvedValue({ id: 'cloud-1', updated_at: '2026-06-06T00:00:01.000Z' }),
-      hasSensitiveContent: vi.fn().mockReturnValue(false),
     };
 
     await expect(saveConversation(conversation, deps)).resolves.toMatchObject({
@@ -141,7 +145,6 @@ describe('save routing', () => {
       saveLocal: vi.fn(),
       saveCloudLink: vi.fn().mockResolvedValue('local-cloud-link'),
       uploadCapture: vi.fn().mockResolvedValue({ id: 'cloud-1', updated_at: '2026-06-06T00:00:01.000Z' }),
-      hasSensitiveContent: vi.fn().mockReturnValue(false),
     };
 
     await expect(saveConversation(conversation, deps)).resolves.toMatchObject({
@@ -154,7 +157,7 @@ describe('save routing', () => {
     expect(deps.saveLocal).not.toHaveBeenCalled();
   });
 
-  it('requires explicit confirmation before uploading sensitive content to cloud', async () => {
+  it('keeps Cloud Mode sensitive content local until upload is confirmed', async () => {
     const deps = {
       ensureReady: vi.fn().mockResolvedValue(undefined),
       getSettings: vi.fn().mockResolvedValue(settings({
@@ -163,18 +166,41 @@ describe('save routing', () => {
         cloud_refresh_token: 'refresh',
       })),
       saveLocal: vi.fn().mockResolvedValue('local-sensitive'),
-      saveCloudLink: vi.fn(),
-      uploadCapture: vi.fn(),
-      hasSensitiveContent: vi.fn().mockReturnValue(true),
+      saveCloudLink: vi.fn().mockResolvedValue('cloud-link'),
+      uploadCapture: vi.fn().mockResolvedValue({ id: 'cloud-upload', updated_at: '2026-06-06T00:00:01.000Z' }),
     };
 
-    await expect(saveConversation(conversation, deps, { confirmedSensitiveUpload: false })).resolves.toMatchObject({
+    await expect(saveConversation(sensitiveConversation, deps)).resolves.toMatchObject({
       success: true,
       capture_id: 'local-sensitive',
       storage_state: 'local',
-      upload_error: 'SENSITIVE_UPLOAD_REQUIRES_CONFIRMATION',
+      upload_error: 'SENSITIVE_UPLOAD_NOT_CONFIRMED',
     });
     expect(deps.uploadCapture).not.toHaveBeenCalled();
-    expect(deps.saveLocal).toHaveBeenCalledWith(conversation, 'SENSITIVE_UPLOAD_REQUIRES_CONFIRMATION');
+    expect(deps.saveCloudLink).not.toHaveBeenCalled();
+    expect(deps.saveLocal).toHaveBeenCalledWith(sensitiveConversation, 'SENSITIVE_UPLOAD_NOT_CONFIRMED');
+  });
+
+  it('uploads Cloud Mode sensitive content after the user confirms from the preview', async () => {
+    const deps = {
+      ensureReady: vi.fn().mockResolvedValue(undefined),
+      getSettings: vi.fn().mockResolvedValue(settings({
+        storage_mode: 'cloud',
+        cloud_access_token: 'access',
+        cloud_refresh_token: 'refresh',
+      })),
+      saveLocal: vi.fn(),
+      saveCloudLink: vi.fn().mockResolvedValue('cloud-link'),
+      uploadCapture: vi.fn().mockResolvedValue({ id: 'cloud-upload', updated_at: '2026-06-06T00:00:01.000Z' }),
+    };
+
+    await expect(saveConversation(sensitiveConversation, deps, { confirmedSensitiveUpload: true })).resolves.toMatchObject({
+      success: true,
+      capture_id: 'cloud-link',
+      storage_state: 'cloud',
+    });
+    expect(deps.uploadCapture).toHaveBeenCalledWith(sensitiveConversation);
+    expect(deps.saveCloudLink).toHaveBeenCalledWith(sensitiveConversation, 'cloud-upload', '2026-06-06T00:00:01.000Z');
+    expect(deps.saveLocal).not.toHaveBeenCalled();
   });
 });

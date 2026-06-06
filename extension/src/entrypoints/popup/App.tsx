@@ -1,14 +1,14 @@
 import { useEffect, useState } from 'react';
 import type { ExtractedConversation, SaveResult, SensitiveResult } from '../../lib/types';
+import { dedupeSensitiveMatches, detectSensitive, parseSensitiveResult } from '../../lib/sensitive';
 import SaveScreen from './screens/SaveScreen';
 import DegradedScreen from './screens/DegradedScreen';
-import SensitiveScreen from './screens/SensitiveScreen';
 import SuccessScreen from './screens/SuccessScreen';
 import FailScreen from './screens/FailScreen';
 import { getPagePlatform, type PagePlatformRoute } from './platform';
 import '../../assets/tokens.css';
 
-type Screen = 'loading' | 'waiting_id' | 'save' | 'degraded' | 'sensitive' | 'success' | 'fail';
+type Screen = 'loading' | 'waiting_id' | 'save' | 'degraded' | 'success' | 'fail';
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>('loading');
@@ -49,10 +49,13 @@ export default function App() {
       if (chrome.runtime.lastError || !result) { setScreen('degraded'); return; }
       if (result['type'] === 'EXTRACTION_RESULT') {
         const conv = result['conversation'] as ExtractedConversation;
-        const sensitiveResult = result['sensitive'] as SensitiveResult;
+        const detected = mergeSensitiveResults(
+          parseSensitiveResult(result['sensitive']),
+          detectSensitive(conv.content.messages),
+        );
         setConversation(conv);
-        setSensitive(sensitiveResult);
-        setScreen(conv.extraction_quality.confidence < 0.6 ? 'degraded' : sensitiveResult?.has_sensitive ? 'sensitive' : 'save');
+        setSensitive(detected);
+        setScreen(conv.extraction_quality.confidence < 0.6 ? 'degraded' : 'save');
       } else {
         setScreen('degraded');
       }
@@ -104,9 +107,8 @@ export default function App() {
         <div>请等待 AI 开始回复后再保存</div>
       </div>
     );
-    if (screen === 'save' && conversation) return <SaveScreen conversation={conversation} onSave={handleSave} onOpenConsole={openConsole} />;
+    if (screen === 'save' && conversation) return <SaveScreen conversation={conversation} sensitive={sensitive} onSave={handleSave} onOpenConsole={openConsole} />;
     if (screen === 'degraded') return <DegradedScreen />;
-    if (screen === 'sensitive' && conversation && sensitive) return <SensitiveScreen conversation={conversation} sensitive={sensitive} onSave={(conv) => handleSave(conv, true)} />;
     if (screen === 'success') return <SuccessScreen storageState={saveResult?.storage_state} uploadError={saveResult?.upload_error} />;
     if (screen === 'fail') return <FailScreen errorMessage={errorMsg} />;
     return null;
@@ -127,4 +129,11 @@ export default function App() {
       )}
     </div>
   );
+}
+
+function mergeSensitiveResults(primary: SensitiveResult | null, fallback: SensitiveResult): SensitiveResult {
+  if (!primary) return fallback;
+
+  const matches = dedupeSensitiveMatches([...primary.matches, ...fallback.matches]);
+  return { has_sensitive: matches.length > 0, matches };
 }

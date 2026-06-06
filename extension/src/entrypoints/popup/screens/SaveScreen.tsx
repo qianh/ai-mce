@@ -1,6 +1,11 @@
-import type { ExtractedConversation } from '../../../lib/types';
+import type { ExtractedConversation, SensitiveResult, SensitiveType } from '../../../lib/types';
 
-interface Props { conversation: ExtractedConversation; onSave: (c: ExtractedConversation) => void; onOpenConsole: () => void }
+interface Props {
+  conversation: ExtractedConversation;
+  sensitive?: SensitiveResult | null;
+  onSave: (c: ExtractedConversation, confirmedSensitiveUpload?: boolean) => void;
+  onOpenConsole: () => void;
+}
 
 const ROLE_LABEL: Record<string, string> = {
   user: '你',
@@ -16,12 +21,35 @@ const ROLE_COLOR: Record<string, string> = {
   unknown: 'var(--ink-3)',
 };
 
-export default function SaveScreen({ conversation, onSave, onOpenConsole }: Props) {
+const SENSITIVE_TYPE_LABEL: Record<SensitiveType, string> = {
+  api_key: 'API Key',
+  token: 'Token',
+  email: '邮箱',
+  phone: '手机号',
+  id_number: '身份证',
+  password: '密码',
+};
+
+export default function SaveScreen({ conversation, sensitive, onSave, onOpenConsole }: Props) {
   const msgs = conversation.content.messages;
   const msgCount = msgs.length;
   const charCount = msgs.reduce((n, m) => n + m.content.length, 0);
   const conf = conversation.extraction_quality.confidence;
   const title = conversation.content.title || conversation.source.browser_title;
+  const sensitiveMatches = sensitive?.matches ?? [];
+
+  const messagePreview = (msg: (typeof msgs)[number]) => {
+    const related = sensitiveMatches.filter((match) => match.message_index === msg.index);
+    if (related.length > 0 && related[0]?.context) {
+      return related[0].context;
+    }
+    return msg.content.length > 120 ? `${msg.content.slice(0, 120).trimEnd()}…` : msg.content;
+  };
+
+  const messageOrdinal = (msg: (typeof msgs)[number]) => {
+    const position = msgs.findIndex((item) => item.index === msg.index);
+    return position >= 0 ? position + 1 : msg.index + 1;
+  };
 
   return (
     <div className="scr" style={{ width: 392 }}>
@@ -50,11 +78,52 @@ export default function SaveScreen({ conversation, onSave, onOpenConsole }: Prop
 
       {/* Message preview */}
       <div style={{ maxHeight: 240, overflowY: 'auto', padding: '10px 18px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {sensitiveMatches.length > 0 && (
+          <div style={{ border: '1px solid color-mix(in oklab, var(--danger-fg) 26%, var(--line))', background: 'color-mix(in oklab, var(--danger-fg) 8%, var(--surface))', borderRadius: 7, padding: '9px 10px', color: 'var(--ink-2)', display: 'flex', flexDirection: 'column', gap: 7 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--danger-fg)' }}>
+              ⚠ 检测到 {sensitiveMatches.length} 处可能的敏感信息
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+              {sensitiveMatches.map((match, index) => {
+                const msg = msgs.find((item) => item.index === match.message_index);
+                const ordinal = msg ? messageOrdinal(msg) : match.message_index + 1;
+                return (
+                  <div key={`${match.type}-${match.message_index}-${index}`} style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 11.5, minWidth: 0 }}>
+                      <span style={{ flexShrink: 0, fontWeight: 700, color: 'var(--danger-fg)' }}>{SENSITIVE_TYPE_LABEL[match.type] ?? match.type}</span>
+                      <span style={{ flexShrink: 0, color: 'var(--ink-3)' }}>第 {ordinal} 条</span>
+                    </div>
+                    <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--ink-1)' }}>
+                      {match.context ?? match.masked}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--ink-3)', lineHeight: 1.45 }}>
+              若当前为云端模式，点击保存将视为同意上传这些内容。
+            </div>
+          </div>
+        )}
         {msgs.map((msg) => {
           const role = msg.role in ROLE_LABEL ? msg.role : 'unknown';
-          const preview = msg.content.length > 120 ? msg.content.slice(0, 120).trimEnd() + '…' : msg.content;
+          const preview = messagePreview(msg);
+          const hasSensitive = sensitiveMatches.some((match) => match.message_index === msg.index);
           return (
-            <div key={msg.index} style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+            <div
+              key={msg.index}
+              style={{
+                display: 'flex',
+                gap: 8,
+                alignItems: 'flex-start',
+                ...(hasSensitive ? {
+                  borderRadius: 6,
+                  padding: '6px 8px',
+                  margin: '-6px -8px',
+                  background: 'color-mix(in oklab, var(--danger-fg) 6%, var(--surface))',
+                } : {}),
+              }}
+            >
               <span style={{ flexShrink: 0, width: 22, height: 22, borderRadius: 5, background: role === 'user' ? 'color-mix(in oklab, var(--accent) 15%, transparent)' : 'color-mix(in oklab, var(--ok-fg) 12%, transparent)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700, color: ROLE_COLOR[role] }}>
                 {ROLE_LABEL[role]}
               </span>
@@ -64,19 +133,10 @@ export default function SaveScreen({ conversation, onSave, onOpenConsole }: Prop
         })}
       </div>
 
-      {/* Privacy notice */}
-      <div style={{ padding: '0 18px 12px', borderTop: '1px solid var(--line)' }}>
-        <div style={{ display: 'flex', gap: 8, padding: '8px 12px', borderRadius: 7, border: '1px solid var(--line)', background: 'var(--surface)', fontSize: 11, color: 'var(--ink-3)', marginTop: 12 }}>
-          <span style={{ color: 'var(--ok-fg)' }}>✓</span>
-          <span>将保存：页面标题 · URL · 以上对话 · 保存时间</span>
-          <span style={{ marginLeft: 'auto', whiteSpace: 'nowrap' }}>✕ 不含 Cookie · 历史</span>
-        </div>
-      </div>
-
       {/* Save button */}
       <div style={{ padding: '0 18px 14px', background: 'var(--surface-2)', borderTop: '1px solid var(--line)' }}>
         <button
-          onClick={() => onSave(conversation)}
+          onClick={() => onSave(conversation, sensitiveMatches.length > 0)}
           style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, padding: '12px 16px', borderRadius: 7, border: 'none', background: 'var(--accent)', color: 'var(--on-accent)', fontSize: 14, fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--font-ui)', marginTop: 12 }}
         >
           ⚡ 保存到 AI Memory
