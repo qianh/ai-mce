@@ -20,7 +20,7 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("AI_MCE_ACCESS_TOKEN_MINUTES", "ACCESS_TOKEN_MINUTES"),
     )
     refresh_token_days: int = Field(
-        default=30,
+        default=3650,
         validation_alias=AliasChoices("AI_MCE_REFRESH_TOKEN_DAYS", "REFRESH_TOKEN_DAYS"),
     )
     supabase_url: str | None = Field(

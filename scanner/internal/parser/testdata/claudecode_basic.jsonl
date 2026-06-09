@@ -1,0 +1,7 @@
+{"type":"mode","mode":"normal","timestamp":"2026-06-01T10:00:00.000Z"}
+{"type":"user","message":{"role":"user","content":"How do I create a Go module?"},"timestamp":"2026-06-01T10:00:01.000Z"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"thinking","thinking":"Let me explain Go modules."},{"type":"text","text":"Run `go mod init <module-path>` to create a new Go module. This creates a `go.mod` file."}]},"timestamp":"2026-06-01T10:00:05.000Z"}
+{"type":"user","message":{"role":"user","content":"What about adding dependencies?"},"timestamp":"2026-06-01T10:00:10.000Z"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Use `go get <package>` to add dependencies. They'll be recorded in `go.mod` and `go.sum`."}]},"timestamp":"2026-06-01T10:00:15.000Z"}
+{"type":"ai-title","aiTitle":"Go Module Setup Guide","timestamp":"2026-06-01T10:00:16.000Z"}
+{"type":"last-prompt","lastPrompt":"What about adding dependencies?","timestamp":"2026-06-01T10:00:16.000Z"}

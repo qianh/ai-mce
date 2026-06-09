@@ -90,7 +90,7 @@ class SupabaseRestClient:
     def create_or_update_capture(self, user_id: str, req: CaptureCreateRequest) -> tuple[dict[str, Any], bool]:
         values = capture_values(req)
         values["user_id"] = user_id
-        existing = self._find_capture_by_fingerprint(user_id, values["source_fingerprint"])
+        existing = self._find_capture_by_content_hash(user_id, values["content_hash"])
         if existing is not None:
             rows = self._request(
                 "PATCH",
@@ -147,8 +147,8 @@ class SupabaseRestClient:
         )
         return True
 
-    def _find_capture_by_fingerprint(self, user_id: str, fingerprint: str) -> dict[str, Any] | None:
-        if not fingerprint:
+    def _find_capture_by_content_hash(self, user_id: str, content_hash: str) -> dict[str, Any] | None:
+        if not content_hash:
             return None
         rows = self._request(
             "GET",
@@ -156,7 +156,7 @@ class SupabaseRestClient:
             params={
                 "select": "*",
                 "user_id": f"eq.{user_id}",
-                "source_fingerprint": f"eq.{fingerprint}",
+                "content_hash": f"eq.{content_hash}",
                 "limit": "1",
             },
         )

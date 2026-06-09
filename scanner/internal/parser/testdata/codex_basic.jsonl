@@ -1,0 +1,12 @@
+{"timestamp":"2026-06-01T10:00:00.000Z","type":"session_meta","payload":{"id":"019cb196-e34d-78b3-8ca2-b50319b00567","timestamp":"2026-06-01T10:00:00.000Z","cwd":"/Users/test/project","originator":"codex_cli_rs","cli_version":"0.107.0","model_provider":"openai"}}
+{"timestamp":"2026-06-01T10:00:01.000Z","type":"response_item","payload":{"type":"message","role":"developer","content":[{"type":"input_text","text":"# System instructions\nYou are a helpful assistant."}]}}
+{"timestamp":"2026-06-01T10:00:02.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<environment_context>\n  <cwd>/Users/test/project</cwd>\n</environment_context>"}]}}
+{"timestamp":"2026-06-01T10:00:03.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"How do I fix this SQL query?"}]}}
+{"timestamp":"2026-06-01T10:00:04.000Z","type":"event_msg","payload":{"role":"","content":"processing"}}
+{"timestamp":"2026-06-01T10:00:05.000Z","type":"response_item","payload":{"type":"reasoning","content":"Let me analyze the query..."}}
+{"timestamp":"2026-06-01T10:00:06.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"You need to add a WHERE clause to filter the results. Here's the corrected query."}]}}
+{"timestamp":"2026-06-01T10:00:07.000Z","type":"response_item","payload":{"type":"function_call","name":"shell","arguments":"{\"command\":\"cat schema.sql\"}"}}
+{"timestamp":"2026-06-01T10:00:08.000Z","type":"response_item","payload":{"type":"function_call_output","output":"CREATE TABLE users (id INT);"}}
+{"timestamp":"2026-06-01T10:00:09.000Z","type":"turn_context","payload":{}}
+{"timestamp":"2026-06-01T10:00:10.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Can you also add an index?"}]}}
+{"timestamp":"2026-06-01T10:00:11.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Sure, adding an index on the frequently queried column will improve performance."}]}}

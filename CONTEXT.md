@@ -1,12 +1,32 @@
 # AI Memory Capture
 
-AI Memory Capture turns user-selected AI web conversations into reusable personal memory. This glossary fixes product language for local storage, cloud storage, and user-controlled sync.
+AI Memory Capture collects personal AI conversations from all channels — browser and desktop — into reusable personal memory. This glossary fixes product language for capture channels, local storage, cloud storage, and user-controlled sync.
 
 ## Language
 
 **Capture**:
-A saved AI conversation or selected web content created by an explicit user action. In cloud storage it includes the full source messages plus extraction metadata.
+A saved AI conversation or selected web content. Browser-channel Captures require explicit user action; desktop-channel Captures are collected automatically by the Scanner. In cloud storage a Capture includes the full source messages plus extraction metadata.
 _Avoid_: Message, record, item
+
+**Browser Channel**:
+The capture channel that runs as a Chrome Extension on supported AI web pages. Every Browser Channel Capture requires an explicit user action and a preview confirmation before saving.
+_Avoid_: Web mode, plugin channel
+
+**Desktop Channel**:
+The capture channel that runs as a macOS launchd daemon, scanning local AI CLI tool session files. Desktop Channel Captures are collected and uploaded automatically without user confirmation.
+_Avoid_: CLI mode, terminal channel
+
+**Scanner**:
+A Go binary running as a macOS launchd daemon that watches AI CLI tool session directories, parses completed sessions into Captures, and uploads them to the API Server. It maintains its own authentication and a local watermark database for incremental processing.
+_Avoid_: Watcher, collector, agent
+
+**Parser**:
+A Scanner component that reads one specific AI CLI tool's session format and converts it into the standard Capture payload. Each supported tool (Claude Code, Codex, Grok, OpenCode) has its own Parser.
+_Avoid_: Extractor (reserved for browser-channel content scripts), adapter
+
+**Watermark Database**:
+The Scanner's local SQLite database that tracks which sessions have been processed, keyed by file path and content hash. Stored at a Scanner-owned path, separate from any AI tool's data directory.
+_Avoid_: State file, checkpoint
 
 **Local Data**:
 A Capture whose source payload is stored only in the extension's local OPFS SQLite database and has not been uploaded to the cloud service.
@@ -56,6 +76,10 @@ _Avoid_: Extension backend, Bun server
 The server-side Supabase/Postgres database behind the API Server. Future migrations to other databases are handled when needed, not abstracted in the first cloud release.
 _Avoid_: Local SQLite, OPFS database
 
+**Completed Session**:
+An AI CLI tool session whose files have not been modified for at least 10 minutes. Only Completed Sessions are eligible for Scanner collection. A session still being written to is ignored until it becomes a Completed Session.
+_Avoid_: Closed session, finished session
+
 ## Example Dialogue
 
 Dev: "If a user switches to cloud mode, do we upload their old Captures?"
@@ -84,3 +108,18 @@ Domain: "Because later releases need server-side AI analysis, so the service sho
 
 Dev: "Do we need database portability in the first cloud release?"
 Domain: "No. Use Supabase/Postgres directly; handle migrations to another database later if the need becomes real."
+
+Dev: "Does the Scanner auto-upload like the browser extension?"
+Domain: "Yes. Desktop Channel Captures are fully automatic — the Scanner collects and uploads without user confirmation. Browser Channel Captures still require explicit user action."
+
+Dev: "How does the Scanner know which sessions to collect?"
+Domain: "It watches AI CLI tool directories via launchd WatchPaths. When files change, it checks for Completed Sessions — those not modified for 10 minutes. It tracks progress in its Watermark Database using file path and content hash."
+
+Dev: "What if upload fails?"
+Domain: "The Scanner retries 3 times. If still failing, the Capture payload is saved in the Watermark Database for later retry."
+
+Dev: "How do I tell browser Captures from desktop Captures?"
+Domain: "By source_url. Browser Captures have a real URL. Desktop Captures have the fixed value 'desktop'. The platform field identifies the AI product in both channels."
+
+Dev: "Does the Scanner share login with the extension?"
+Domain: "No. The Scanner authenticates independently with its own credentials. Both authenticate as the same Registered User, so all Captures land under one account."

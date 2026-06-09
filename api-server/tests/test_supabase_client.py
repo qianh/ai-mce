@@ -63,7 +63,7 @@ def test_create_capture_uses_service_key_and_business_user_id():
         if request.method == "GET":
             assert request.url.path == "/rest/v1/captures"
             assert request.url.params["user_id"] == "eq.11111111-1111-1111-1111-111111111111"
-            assert request.url.params["source_fingerprint"] == "eq.chatgpt:abc"
+            assert request.url.params["content_hash"] == "eq.hash-1"
             return httpx.Response(200, json=[])
         assert request.method == "POST"
         assert request.url.path == "/rest/v1/captures"

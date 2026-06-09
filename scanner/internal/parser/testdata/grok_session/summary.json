@@ -1,0 +1,12 @@
+{
+  "info": {
+    "id": "019e9ba7-48b2-7ce1-9f99-87880121a4cb",
+    "cwd": "/Users/test/project"
+  },
+  "session_summary": "Go Concurrency Basics",
+  "created_at": "2026-06-01T10:00:00.000Z",
+  "updated_at": "2026-06-01T10:05:00.000Z",
+  "num_messages": 7,
+  "num_chat_messages": 4,
+  "current_model_id": "grok-composer-2.5-fast"
+}
