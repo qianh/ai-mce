@@ -37,6 +37,7 @@ func Open(dbPath string) (*DB, error) {
 	if err != nil {
 		return nil, err
 	}
+	db.SetMaxOpenConns(1) // serialize concurrent writes through a single connection
 
 	if _, err := db.Exec(`
 		CREATE TABLE IF NOT EXISTS sessions (

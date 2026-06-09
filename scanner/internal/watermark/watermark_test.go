@@ -1,6 +1,7 @@
 package watermark
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -137,6 +138,34 @@ func TestRemovePending(t *testing.T) {
 	remaining, _ := db.GetPendingUploads()
 	if len(remaining) != 1 {
 		t.Errorf("expected 1 remaining, got %d", len(remaining))
+	}
+}
+
+func TestMarkUploadedConcurrent(t *testing.T) {
+	db := tempDB(t)
+
+	const n = 50
+	errs := make(chan error, n)
+
+	for i := 0; i < n; i++ {
+		path := fmt.Sprintf("/path/session-%d.jsonl", i)
+		go func(p string) {
+			errs <- db.MarkUploaded(p, "hash"+p, "claude", "")
+		}(path)
+	}
+
+	for i := 0; i < n; i++ {
+		if err := <-errs; err != nil {
+			t.Errorf("concurrent MarkUploaded: %v", err)
+		}
+	}
+
+	stats, err := db.Stats()
+	if err != nil {
+		t.Fatalf("Stats: %v", err)
+	}
+	if stats.TrackedSessions != n {
+		t.Errorf("TrackedSessions: got %d, want %d", stats.TrackedSessions, n)
 	}
 }
 
