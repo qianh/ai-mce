@@ -153,6 +153,62 @@ func TestClientUploadCaptureRetry(t *testing.T) {
 	}
 }
 
+func TestConcurrentRefreshOnce(t *testing.T) {
+	var refreshCalls atomic.Int32
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/captures":
+			if r.Header.Get("Authorization") == "Bearer old-token" {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			w.WriteHeader(http.StatusCreated)
+			json.NewEncoder(w).Encode(UploadResponse{ID: "cap_ok", Status: "created"})
+		case "/v1/auth/refresh":
+			refreshCalls.Add(1)
+			time.Sleep(10 * time.Millisecond)
+			json.NewEncoder(w).Encode(LoginResponse{
+				AccessToken:  "new-token",
+				RefreshToken: "new-refresh",
+			})
+		}
+	}))
+	defer server.Close()
+
+	client := New(server.URL, "old-token", "refresh-token", nil)
+	client.RetryDelay = noDelay
+
+	conv := &model.ExtractedConversation{
+		SchemaVersion:    "1.0",
+		ExtractorVersion: "scanner-0.1.0",
+		Source:           model.Source{Platform: "claude", URL: "desktop"},
+		Content: model.Content{
+			Messages: []model.ExtractedMessage{{Role: "user", Content: "hi", Index: 0}},
+		},
+		Hashes: model.Hashes{ContentHash: "concurrent123"},
+	}
+
+	const goroutines = 8
+	errs := make(chan error, goroutines)
+	for i := 0; i < goroutines; i++ {
+		go func() {
+			_, err := client.UploadCapture(conv)
+			errs <- err
+		}()
+	}
+
+	for i := 0; i < goroutines; i++ {
+		if err := <-errs; err != nil {
+			t.Errorf("UploadCapture: %v", err)
+		}
+	}
+
+	if n := refreshCalls.Load(); n != 1 {
+		t.Errorf("refresh calls: got %d, want exactly 1", n)
+	}
+}
+
 func TestClientUploadCaptureAllRetriesFail(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusServiceUnavailable)

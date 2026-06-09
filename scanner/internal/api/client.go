@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/mce/scanner/pkg/model"
@@ -17,13 +18,18 @@ import (
 var ErrUnauthorized = errors.New("unauthorized")
 
 type Client struct {
-	baseURL        string
-	token          string
-	refreshToken   string
+	baseURL      string
+	mu           sync.Mutex // protects token and refreshToken field reads/writes
+	refreshOnce  sync.Mutex // serializes the 401 → refresh → retry path
+	token        string
+	refreshToken string
 	OnTokenRefresh func(accessToken, refreshToken string) error
-	httpClient     *http.Client
-	MaxRetries     int
-	RetryDelay     func(attempt int) time.Duration
+	// ReloginFn is called as a last resort when refresh fails (e.g. stale token).
+	// It should return fresh access and refresh tokens via a full login.
+	ReloginFn  func() (accessToken, refreshToken string, err error)
+	httpClient *http.Client
+	MaxRetries int
+	RetryDelay func(attempt int) time.Duration
 }
 
 type LoginRequest struct {
@@ -57,12 +63,29 @@ func New(baseURL, token, refreshToken string, onTokenRefresh func(accessToken, r
 	}
 }
 
+func (c *Client) getToken() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.token
+}
+
+func (c *Client) setTokens(access, refresh string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.token = access
+	c.refreshToken = refresh
+}
+
 func (c *Client) Refresh() error {
-	if c.refreshToken == "" {
+	c.mu.Lock()
+	rt := c.refreshToken
+	c.mu.Unlock()
+
+	if rt == "" {
 		return fmt.Errorf("no refresh token available")
 	}
 
-	body, err := json.Marshal(RefreshRequest{RefreshToken: c.refreshToken})
+	body, err := json.Marshal(RefreshRequest{RefreshToken: rt})
 	if err != nil {
 		return fmt.Errorf("marshal refresh request: %w", err)
 	}
@@ -87,8 +110,7 @@ func (c *Client) Refresh() error {
 		return fmt.Errorf("decode refresh response: %w", err)
 	}
 
-	c.token = result.AccessToken
-	c.refreshToken = result.RefreshToken
+	c.setTokens(result.AccessToken, result.RefreshToken)
 
 	if c.OnTokenRefresh != nil {
 		if err := c.OnTokenRefresh(result.AccessToken, result.RefreshToken); err != nil {
@@ -141,15 +163,42 @@ func (c *Client) UploadCapture(conv *model.ExtractedConversation) (*UploadRespon
 		return result, nil
 	}
 
-	// On 401, try once to refresh the token and retry.
-	if errors.Is(err, ErrUnauthorized) && c.refreshToken != "" {
-		if refreshErr := c.Refresh(); refreshErr != nil {
-			return nil, fmt.Errorf("token expired and refresh failed: %w", refreshErr)
-		}
+	if !errors.Is(err, ErrUnauthorized) {
+		return nil, err
+	}
+
+	// Serialize the refresh path: only one goroutine refreshes at a time.
+	tokenAtFailure := c.getToken()
+	c.refreshOnce.Lock()
+	defer c.refreshOnce.Unlock()
+
+	// Double-check: another goroutine may have already refreshed while we waited.
+	if c.getToken() != tokenAtFailure {
 		return c.uploadCaptureBody(body)
 	}
 
-	return nil, err
+	c.mu.Lock()
+	hasRefresh := c.refreshToken != ""
+	c.mu.Unlock()
+
+	if !hasRefresh {
+		return nil, fmt.Errorf("token expired and no refresh token available")
+	}
+
+	if refreshErr := c.Refresh(); refreshErr != nil {
+		if c.ReloginFn != nil {
+			newAccess, newRefresh, reloginErr := c.ReloginFn()
+			if reloginErr == nil {
+				c.setTokens(newAccess, newRefresh)
+				if c.OnTokenRefresh != nil {
+					_ = c.OnTokenRefresh(newAccess, newRefresh)
+				}
+				return c.uploadCaptureBody(body)
+			}
+		}
+		return nil, fmt.Errorf("token expired and refresh failed: %w", refreshErr)
+	}
+	return c.uploadCaptureBody(body)
 }
 
 func (c *Client) uploadCaptureBody(body []byte) (*UploadResponse, error) {
@@ -164,8 +213,8 @@ func (c *Client) uploadCaptureBody(body []byte) (*UploadResponse, error) {
 			return nil, fmt.Errorf("create request: %w", err)
 		}
 		req.Header.Set("Content-Type", "application/json")
-		if c.token != "" {
-			req.Header.Set("Authorization", "Bearer "+c.token)
+		if token := c.getToken(); token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
 		}
 
 		resp, err := c.httpClient.Do(req)
