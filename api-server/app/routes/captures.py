@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.schemas import CaptureCreateRequest, CaptureCreateResponse, CaptureDetailResponse, CaptureListItem
@@ -58,11 +58,24 @@ def create_capture(
 
 @router.get("", response_model=list[CaptureListItem])
 def list_captures(
+    source_side: str | None = Query(default=None, pattern="^(browser|desktop)$"),
+    source_platform: str | None = Query(default=None),
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
     user_id: str = Depends(current_user_id),
     client: SupabaseRestClient = Depends(get_supabase_client),
 ) -> list[CaptureListItem]:
     try:
-        return [_capture_item(row) for row in client.list_captures(user_id)]
+        return [
+            _capture_item(row)
+            for row in client.list_captures(
+                user_id,
+                source_side=source_side,
+                source_platform=source_platform,
+                limit=limit,
+                offset=offset,
+            )
+        ]
     except SupabaseApiError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
 

@@ -109,16 +109,28 @@ class SupabaseRestClient:
         )
         return rows[0], True
 
-    def list_captures(self, user_id: str) -> list[dict[str, Any]]:
-        return self._request(
-            "GET",
-            "/rest/v1/captures",
-            params={
-                "select": "*",
-                "user_id": f"eq.{user_id}",
-                "order": "created_at.desc",
-            },
-        )
+    def list_captures(
+        self,
+        user_id: str,
+        source_side: str | None = None,
+        source_platform: str | None = None,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        params: dict[str, str] = {
+            "select": "*",
+            "user_id": f"eq.{user_id}",
+            "order": "created_at.desc",
+            "limit": str(limit),
+            "offset": str(offset),
+        }
+        if source_side == "browser":
+            params["source_url"] = "neq.desktop"
+        elif source_side == "desktop":
+            params["source_url"] = "eq.desktop"
+        if source_platform:
+            params["source_platform"] = f"eq.{source_platform}"
+        return self._request("GET", "/rest/v1/captures", params=params)
 
     def get_capture(self, user_id: str, capture_id: str) -> dict[str, Any] | None:
         rows = self._request(

@@ -32,8 +32,22 @@ class FakeSupabaseClient:
         rows.insert(0, row)
         return row, True
 
-    def list_captures(self, user_id: str) -> list[dict]:
-        return list(self.captures.get(user_id, []))
+    def list_captures(
+        self,
+        user_id: str,
+        source_side: str | None = None,
+        source_platform: str | None = None,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> list[dict]:
+        rows = list(self.captures.get(user_id, []))
+        if source_side == "browser":
+            rows = [r for r in rows if r["source_url"] != "desktop"]
+        elif source_side == "desktop":
+            rows = [r for r in rows if r["source_url"] == "desktop"]
+        if source_platform:
+            rows = [r for r in rows if r["source_platform"] == source_platform]
+        return rows[offset : offset + limit]
 
     def get_capture(self, user_id: str, capture_id: str) -> dict | None:
         return next((row for row in self.captures.get(user_id, []) if row["id"] == capture_id), None)
@@ -171,3 +185,89 @@ def test_users_are_isolated_for_list_detail_and_delete():
     deleted = client.delete(f"/v1/captures/{capture_id}", headers=auth(token_a))
     assert deleted.status_code == 204
     assert client.get(f"/v1/captures/{capture_id}", headers=auth(token_a)).status_code == 404
+
+
+def desktop_payload(title: str = "Desktop cap", platform: str = "claude") -> dict:
+    return {
+        "source": {
+            "platform": platform,
+            "url": "desktop",
+            "browser_title": title,
+            "captured_at": "2026-06-05T10:00:00.000Z",
+        },
+        "content": {
+            "title": title,
+            "messages": [{"role": "user", "content": "hello", "index": 0}],
+        },
+        "extraction_quality": {"confidence": 0.9, "method": "dom_attr", "warnings": [], "message_count": 1, "empty_message_count": 0},
+        "hashes": {
+            "content_hash": f"desktop-hash-{title}",
+            "message_hashes": ["m1"],
+            "source_fingerprint": f"desktop:{platform}:{title}",
+        },
+        "metadata": {},
+    }
+
+
+def test_list_captures_filter_source_side_browser():
+    client = make_client()
+    token = register(client, "side@example.com")
+
+    client.post("/v1/captures", json=payload(title="Browser cap"), headers=auth(token))
+    client.post("/v1/captures", json=desktop_payload(title="Desktop cap"), headers=auth(token))
+
+    resp = client.get("/v1/captures?source_side=browser", headers=auth(token))
+    assert resp.status_code == 200
+    assert len(resp.json()) == 1
+    assert resp.json()[0]["source_url"] != "desktop"
+
+
+def test_list_captures_filter_source_side_desktop():
+    client = make_client()
+    token = register(client, "desk@example.com")
+
+    client.post("/v1/captures", json=payload(title="Browser cap"), headers=auth(token))
+    client.post("/v1/captures", json=desktop_payload(title="Desktop cap"), headers=auth(token))
+
+    resp = client.get("/v1/captures?source_side=desktop", headers=auth(token))
+    assert resp.status_code == 200
+    assert len(resp.json()) == 1
+    assert resp.json()[0]["source_url"] == "desktop"
+
+
+def test_list_captures_filter_source_platform():
+    client = make_client()
+    token = register(client, "plat@example.com")
+
+    client.post("/v1/captures", json=payload(title="ChatGPT cap"), headers=auth(token))
+    client.post("/v1/captures", json=desktop_payload(title="Claude cap", platform="claude"), headers=auth(token))
+
+    resp = client.get("/v1/captures?source_platform=chatgpt", headers=auth(token))
+    assert resp.status_code == 200
+    assert all(r["source_platform"] == "chatgpt" for r in resp.json())
+
+
+def test_list_captures_pagination():
+    client = make_client()
+    token = register(client, "page@example.com")
+
+    for i in range(5):
+        p = payload(title=f"Cap {i}", fingerprint=f"fp:{i}")
+        p["hashes"]["content_hash"] = f"hash-pg-{i}"
+        client.post("/v1/captures", json=p, headers=auth(token))
+
+    page1 = client.get("/v1/captures?limit=2&offset=0", headers=auth(token))
+    assert len(page1.json()) == 2
+
+    page2 = client.get("/v1/captures?limit=2&offset=2", headers=auth(token))
+    assert len(page2.json()) == 2
+
+    last = client.get("/v1/captures?limit=2&offset=4", headers=auth(token))
+    assert len(last.json()) == 1
+
+
+def test_list_captures_limit_over_100_is_422():
+    client = make_client()
+    token = register(client, "lim@example.com")
+    resp = client.get("/v1/captures?limit=101", headers=auth(token))
+    assert resp.status_code == 422
