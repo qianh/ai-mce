@@ -109,6 +109,30 @@ func TestLoadTokenNotExist(t *testing.T) {
 	}
 }
 
+func TestConcurrencyDefault(t *testing.T) {
+	t.Setenv("MCE_CONCURRENCY", "")
+	cfg := FromEnv()
+	if cfg.Concurrency != 8 {
+		t.Errorf("Concurrency default: got %d, want 8", cfg.Concurrency)
+	}
+}
+
+func TestConcurrencyFromEnv(t *testing.T) {
+	t.Setenv("MCE_CONCURRENCY", "4")
+	cfg := FromEnv()
+	if cfg.Concurrency != 4 {
+		t.Errorf("Concurrency from env: got %d, want 4", cfg.Concurrency)
+	}
+}
+
+func TestConcurrencyInvalidEnv(t *testing.T) {
+	t.Setenv("MCE_CONCURRENCY", "bad")
+	cfg := FromEnv()
+	if cfg.Concurrency != 8 {
+		t.Errorf("invalid MCE_CONCURRENCY should fall back to default 8, got %d", cfg.Concurrency)
+	}
+}
+
 func TestTokenFilePermissions(t *testing.T) {
 	dir := t.TempDir()
 	tokenPath := filepath.Join(dir, "token.json")

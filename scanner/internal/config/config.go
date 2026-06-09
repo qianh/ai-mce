@@ -2,17 +2,20 @@ package config
 
 import (
 	"encoding/json"
+	"log"
 	"os"
 	"path/filepath"
+	"strconv"
 )
 
 type Config struct {
-	APIBaseURL              string
-	DBPath                  string
-	TokenPath               string
-	CredsPath               string
-	CompletionThresholdMin  int
-	MaxRetries              int
+	APIBaseURL             string
+	DBPath                 string
+	TokenPath              string
+	CredsPath              string
+	CompletionThresholdMin int
+	MaxRetries             int
+	Concurrency            int
 }
 
 type ToolPath struct {
@@ -42,6 +45,7 @@ func Default() Config {
 		CredsPath:              filepath.Join(scannerDir, "creds.json"),
 		CompletionThresholdMin: 10,
 		MaxRetries:             3,
+		Concurrency:            8,
 	}
 }
 
@@ -53,6 +57,13 @@ func FromEnv() Config {
 	}
 	if v := os.Getenv("MCE_DB_PATH"); v != "" {
 		cfg.DBPath = v
+	}
+	if v := os.Getenv("MCE_CONCURRENCY"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			cfg.Concurrency = n
+		} else {
+			log.Printf("warning: invalid MCE_CONCURRENCY %q, using default %d", v, cfg.Concurrency)
+		}
 	}
 
 	return cfg
