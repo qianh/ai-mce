@@ -2,10 +2,12 @@ package scanner
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -145,5 +147,140 @@ func TestScannerRunOnce(t *testing.T) {
 	}
 	if len(uploaded) != 0 {
 		t.Errorf("should not re-upload, got %d", len(uploaded))
+	}
+}
+
+func TestRunOnceConcurrent(t *testing.T) {
+	var mu sync.Mutex
+	var uploaded []string
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/captures" {
+			mu.Lock()
+			uploaded = append(uploaded, "capture")
+			mu.Unlock()
+			w.WriteHeader(http.StatusCreated)
+			json.NewEncoder(w).Encode(map[string]string{"id": "cap_ok", "status": "created"})
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "state.db")
+	claudeDir := filepath.Join(tmpDir, "claude-projects")
+
+	for i := 0; i < 20; i++ {
+		projDir := filepath.Join(claudeDir, fmt.Sprintf("proj-%d", i/5))
+		os.MkdirAll(projDir, 0o755)
+		content := fmt.Sprintf(
+			"{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"q%d\"},\"timestamp\":\"2026-01-01T10:00:00Z\"}\n"+
+				"{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"a%d\"}]},\"timestamp\":\"2026-01-01T10:00:01Z\"}\n",
+			i, i,
+		)
+		sessionFile := filepath.Join(projDir, fmt.Sprintf("session-%03d.jsonl", i))
+		os.WriteFile(sessionFile, []byte(content), 0o644)
+		old := time.Now().Add(-20 * time.Minute)
+		os.Chtimes(sessionFile, old, old)
+	}
+
+	cfg := config.Default()
+	cfg.APIBaseURL = server.URL
+	cfg.DBPath = dbPath
+	cfg.Concurrency = 4
+
+	s, err := NewScanner(cfg, "test-token", "", nil)
+	if err != nil {
+		t.Fatalf("NewScanner: %v", err)
+	}
+	defer s.Close()
+	s.apiClient.RetryDelay = func(_ int) time.Duration { return 0 }
+	s.toolPaths = []config.ToolPath{
+		{Platform: "claude", BasePath: claudeDir, Format: "jsonl"},
+	}
+
+	if err := s.RunOnce(); err != nil {
+		t.Fatalf("RunOnce: %v", err)
+	}
+	if len(uploaded) != 20 {
+		t.Errorf("uploaded: got %d, want 20", len(uploaded))
+	}
+}
+
+func TestRunOnceErrorIsolation(t *testing.T) {
+	var mu sync.Mutex
+	var uploaded []string
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/captures" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		var body map[string]interface{}
+		json.NewDecoder(r.Body).Decode(&body)
+		if content, ok := body["content"].(map[string]interface{}); ok {
+			if title, _ := content["title"].(string); title == "fail" {
+				w.WriteHeader(http.StatusBadRequest)
+				w.Write([]byte(`{"detail":"rejected"}`))
+				return
+			}
+		}
+		mu.Lock()
+		uploaded = append(uploaded, "ok")
+		mu.Unlock()
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(map[string]string{"id": "cap_ok", "status": "created"})
+	}))
+	defer server.Close()
+
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "state.db")
+	claudeDir := filepath.Join(tmpDir, "claude-projects")
+	projDir := filepath.Join(claudeDir, "proj")
+	os.MkdirAll(projDir, 0o755)
+
+	for i := 0; i < 3; i++ {
+		content := fmt.Sprintf(
+			"{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"q%d\"},\"timestamp\":\"2026-01-01T10:00:00Z\"}\n"+
+				"{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"a%d\"}]},\"timestamp\":\"2026-01-01T10:00:01Z\"}\n"+
+				"{\"type\":\"ai-title\",\"aiTitle\":\"good\",\"timestamp\":\"2026-01-01T10:00:02Z\"}\n",
+			i, i,
+		)
+		sf := filepath.Join(projDir, fmt.Sprintf("good-%03d.jsonl", i))
+		os.WriteFile(sf, []byte(content), 0o644)
+		old := time.Now().Add(-20 * time.Minute)
+		os.Chtimes(sf, old, old)
+	}
+
+	badContent := "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"bad\"},\"timestamp\":\"2026-01-01T10:00:00Z\"}\n" +
+		"{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"bad\"}]},\"timestamp\":\"2026-01-01T10:00:01Z\"}\n" +
+		"{\"type\":\"ai-title\",\"aiTitle\":\"fail\",\"timestamp\":\"2026-01-01T10:00:02Z\"}\n"
+	badFile := filepath.Join(projDir, "bad-000.jsonl")
+	os.WriteFile(badFile, []byte(badContent), 0o644)
+	old := time.Now().Add(-20 * time.Minute)
+	os.Chtimes(badFile, old, old)
+
+	cfg := config.Default()
+	cfg.APIBaseURL = server.URL
+	cfg.DBPath = dbPath
+	cfg.Concurrency = 2
+
+	s, err := NewScanner(cfg, "test-token", "", nil)
+	if err != nil {
+		t.Fatalf("NewScanner: %v", err)
+	}
+	defer s.Close()
+	s.apiClient.RetryDelay = func(_ int) time.Duration { return 0 }
+	s.apiClient.MaxRetries = 0
+	s.toolPaths = []config.ToolPath{
+		{Platform: "claude", BasePath: claudeDir, Format: "jsonl"},
+	}
+
+	if err := s.RunOnce(); err != nil {
+		t.Fatalf("RunOnce should not return error even when sessions fail: %v", err)
+	}
+	if len(uploaded) != 3 {
+		t.Errorf("successful uploads: got %d, want 3", len(uploaded))
 	}
 }

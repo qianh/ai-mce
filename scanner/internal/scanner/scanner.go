@@ -3,11 +3,14 @@ package scanner
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/mce/scanner/internal/api"
@@ -53,6 +56,12 @@ func (s *Scanner) Close() error {
 	return s.db.Close()
 }
 
+// SetReloginFn wires up a full re-login fallback on the API client.
+// When a token refresh fails, the client calls fn to get fresh tokens instead of erroring out.
+func (s *Scanner) SetReloginFn(fn func() (accessToken, refreshToken string, err error)) {
+	s.apiClient.ReloginFn = fn
+}
+
 type discoveredSession struct {
 	Platform string
 	FilePath string
@@ -60,13 +69,44 @@ type discoveredSession struct {
 
 func (s *Scanner) RunOnce() error {
 	sessions := s.discoverAll()
-
-	for _, sess := range sessions {
-		if err := s.processSession(sess); err != nil {
-			log.Printf("error processing %s (%s): %v", sess.FilePath, sess.Platform, err)
-		}
+	total := len(sessions)
+	if total == 0 {
+		log.Printf("scan complete: 0 sessions")
+		return nil
 	}
 
+	concurrency := s.cfg.Concurrency
+	if concurrency <= 0 {
+		concurrency = 8
+	}
+
+	sessionCh := make(chan discoveredSession, concurrency)
+	var wg sync.WaitGroup
+	var processed atomic.Int64
+
+	for i := 0; i < concurrency; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for sess := range sessionCh {
+				if err := s.processSession(sess); err != nil {
+					log.Printf("error processing %s (%s): %v", sess.FilePath, sess.Platform, err)
+				}
+				n := processed.Add(1)
+				if n%100 == 0 {
+					log.Printf("processed %d/%d sessions...", n, int64(total))
+				}
+			}
+		}()
+	}
+
+	for _, sess := range sessions {
+		sessionCh <- sess
+	}
+	close(sessionCh)
+
+	wg.Wait()
+	log.Printf("scan complete: %d sessions", processed.Load())
 	return nil
 }
 
@@ -98,6 +138,12 @@ func (s *Scanner) processSession(sess discoveredSession) error {
 
 	conv, err := p.Parse(sess.FilePath)
 	if err != nil {
+		if errors.Is(err, parser.ErrNoMessages) {
+			// Session has no extractable conversation content (init-only, empty, etc.)
+			// Mark permanently so it isn't retried on every scan.
+			_ = s.db.MarkUploaded(sess.FilePath, "empty:v1", sess.Platform, "")
+			return nil
+		}
 		return fmt.Errorf("parse: %w", err)
 	}
 
