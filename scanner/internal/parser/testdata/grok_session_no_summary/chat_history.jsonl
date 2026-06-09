@@ -1,0 +1,7 @@
+{"type":"system","content":"You are an AI coding assistant."}
+{"type":"user","content":[{"type":"text","text":"<user_info>\nOS Version: darwin 25.3.0\nShell: zsh\n</user_info>"}]}
+{"type":"user","content":[{"type":"text","text":"<user_query>\nWhat is a goroutine?\n</user_query>"}]}
+{"type":"reasoning","content":"","summary":[{"type":"summary_text","text":"Explaining goroutines"}]}
+{"type":"assistant","content":"A goroutine is a lightweight thread managed by the Go runtime. You create one with the `go` keyword.","model_id":"grok-composer-2.5-fast"}
+{"type":"user","content":[{"type":"text","text":"<user_query>\nHow do channels work?\n</user_query>"}]}
+{"type":"assistant","content":"Channels are typed conduits for sending and receiving values between goroutines. Use `make(chan Type)` to create one.","model_id":"grok-composer-2.5-fast"}

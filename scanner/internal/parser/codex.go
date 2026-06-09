@@ -107,7 +107,7 @@ func (p *CodexParser) Parse(path string) (*model.ExtractedConversation, error) {
 	}
 
 	if len(messages) == 0 {
-		return nil, fmt.Errorf("no messages found in %s", path)
+		return nil, fmt.Errorf("%w in %s", ErrNoMessages, path)
 	}
 
 	metadata := map[string]any{}
@@ -115,7 +115,7 @@ func (p *CodexParser) Parse(path string) (*model.ExtractedConversation, error) {
 		metadata["session_id"] = sessionID
 	}
 
-	return BuildResult("codex", "codex-jsonl", "", messages, warnings, metadata), nil
+	return BuildResult("codex", "codex-jsonl", deriveTitle(messages), messages, warnings, metadata), nil
 }
 
 func extractCodexText(blocks []codexTextBlock, role string) string {

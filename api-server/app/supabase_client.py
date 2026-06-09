@@ -1,11 +1,15 @@
 from datetime import UTC, datetime
 from typing import Any
+from uuid import uuid4
 
 import httpx
 
 from app.config import get_settings
 from app.schemas import CaptureCreateRequest
 from app.security import hash_password, hash_refresh_token, verify_password
+
+
+_DESKTOP_SOURCE_URL = "desktop"
 
 
 class SupabaseApiError(Exception):
@@ -57,6 +61,7 @@ class SupabaseRestClient:
 
     def consume_refresh_token(self, refresh_token: str) -> dict[str, Any] | None:
         token_hash = hash_refresh_token(refresh_token)
+        now = datetime.now(UTC)
         rows = self._request(
             "GET",
             "/rest/v1/refresh_tokens",
@@ -64,6 +69,7 @@ class SupabaseRestClient:
                 "select": "*,users(*)",
                 "token_hash": f"eq.{token_hash}",
                 "revoked_at": "is.null",
+                "expires_at": f"gt.{now.isoformat()}",
                 "limit": "1",
             },
         )
@@ -71,13 +77,18 @@ class SupabaseRestClient:
             return None
 
         token_row = rows[0]
+        user = token_row.get("users")
+        if not user:
+            # Join returned no user — don't revoke so the client can retry.
+            return None
+
         self._request(
             "PATCH",
             "/rest/v1/refresh_tokens",
             params={"id": f"eq.{token_row['id']}"},
-            json={"revoked_at": datetime.now(UTC).isoformat()},
+            json={"revoked_at": now.isoformat()},
         )
-        return token_row.get("users")
+        return user
 
     def logout(self, refresh_token: str) -> None:
         self._request(
@@ -101,13 +112,21 @@ class SupabaseRestClient:
             )
             return rows[0], False
 
-        rows = self._request(
-            "POST",
-            "/rest/v1/captures",
-            json=values,
-            prefer="return=representation",
-        )
-        return rows[0], True
+        insert_values = {"id": str(uuid4()), **values}
+        try:
+            rows = self._request(
+                "POST",
+                "/rest/v1/captures",
+                json=insert_values,
+                prefer="return=representation",
+            )
+            return rows[0], True
+        except SupabaseApiError as exc:
+            if exc.status_code == 409:
+                existing = self._find_capture_by_content_hash(user_id, values["content_hash"])
+                if existing:
+                    return existing, False
+            raise
 
     def list_captures(
         self,
@@ -125,9 +144,9 @@ class SupabaseRestClient:
             "offset": str(offset),
         }
         if source_side == "browser":
-            params["source_url"] = "neq.desktop"
+            params["source_url"] = f"neq.{_DESKTOP_SOURCE_URL}"
         elif source_side == "desktop":
-            params["source_url"] = "eq.desktop"
+            params["source_url"] = f"eq.{_DESKTOP_SOURCE_URL}"
         if source_platform:
             params["source_platform"] = f"eq.{source_platform}"
         return self._request("GET", "/rest/v1/captures", params=params)

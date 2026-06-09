@@ -1,4 +1,4 @@
-import { useState, FormEvent } from 'react';
+import { useState, FormEvent, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { login } from '../lib/api';
 
@@ -8,6 +8,15 @@ export default function Login() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    fetch('/api/dev-creds')
+      .then(r => r.ok ? r.json() : Promise.reject())
+      .then(({ email, password }: { email: string; password: string }) =>
+        login(email, password).then(() => navigate('/', { replace: true }))
+      )
+      .catch(() => {});
+  }, []);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();

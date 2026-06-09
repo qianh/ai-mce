@@ -1,20 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { getCapture, deleteCapture } from '../lib/api';
+import { PLATFORM_LABELS, isDesktop as checkDesktop, formatDate } from '../lib/utils';
 import type { CaptureDetail as CaptureDetailType, Message } from '../lib/types';
-
-const PLATFORM_LABELS: Record<string, string> = {
-  chatgpt: 'ChatGPT',
-  deepseek: 'DeepSeek',
-  claude: 'Claude Code',
-  codex: 'Codex',
-  grok: 'Grok',
-  opencode: 'OpenCode',
-};
-
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
-}
 
 export default function CaptureDetail() {
   const { id } = useParams<{ id: string }>();
@@ -62,7 +50,7 @@ export default function CaptureDetail() {
     );
   }
 
-  const isDesktop = capture.source_url === 'desktop';
+  const isDesktop = checkDesktop(capture);
 
   return (
     <div style={{ maxWidth: 860, margin: '0 auto', padding: '28px 24px' }}>
@@ -76,7 +64,7 @@ export default function CaptureDetail() {
           </h1>
           <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             <span className="pill">{PLATFORM_LABELS[capture.source_platform] ?? capture.source_platform}</span>
-            <span className="pill" style={isDesktop ? { color: 'var(--l4-fg)', background: 'var(--l4-bg)', borderColor: 'var(--l4-line)' } : {}}>
+            <span className={isDesktop ? 'pill l4' : 'pill'}>
               {isDesktop ? '桌面端' : '浏览器端'}
             </span>
             <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>{formatDate(capture.created_at)}</span>

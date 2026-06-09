@@ -1,15 +1,43 @@
 package parser
 
 import (
+	"errors"
 	"strings"
 	"time"
 
 	"github.com/mce/scanner/pkg/model"
 )
 
+// ErrNoMessages is returned by parsers when a session file exists but contains
+// no extractable user/assistant messages (e.g. init-only sessions).
+var ErrNoMessages = errors.New("no messages found")
+
 type Parser interface {
 	Parse(path string) (*model.ExtractedConversation, error)
 	Platform() string
+}
+
+// deriveTitle extracts a display title from the first user message when no
+// explicit title is available. Takes first line, trims whitespace, caps at 80 runes.
+func deriveTitle(messages []model.ExtractedMessage) string {
+	for _, m := range messages {
+		if m.Role != "user" {
+			continue
+		}
+		content := strings.TrimSpace(m.Content)
+		if content == "" {
+			continue
+		}
+		if nl := strings.IndexByte(content, '\n'); nl > 0 {
+			content = strings.TrimSpace(content[:nl])
+		}
+		runes := []rune(content)
+		if len(runes) > 80 {
+			content = string(runes[:80])
+		}
+		return strings.TrimSpace(content)
+	}
+	return ""
 }
 
 func BuildResult(platform, method, title string, messages []model.ExtractedMessage, warnings []string, metadata map[string]any) *model.ExtractedConversation {

@@ -1,7 +1,7 @@
 import { getTokens, setTokens, clearTokens } from './auth';
 import type { CaptureListItem, CaptureDetail, ListParams } from './types';
 
-const BASE_URL = 'http://localhost:8008';
+const BASE_URL: string = (import.meta as unknown as { env?: Record<string, string> }).env?.API_URL ?? 'http://localhost:8008';
 
 async function request<T>(
   path: string,

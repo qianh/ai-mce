@@ -107,7 +107,7 @@ func (p *OpenCodeParser) Parse(path string) (*model.ExtractedConversation, error
 	}
 
 	if len(messages) == 0 {
-		return nil, fmt.Errorf("no messages found for session %s", sessionID)
+		return nil, fmt.Errorf("%w for session %s", ErrNoMessages, sessionID)
 	}
 
 	return BuildResult("opencode", "opencode-sqlite", title, messages, warnings, map[string]any{

@@ -66,6 +66,9 @@ func (p *ClaudeCodeParser) Parse(path string) (*model.ExtractedConversation, err
 				warnings = append(warnings, fmt.Sprintf("skipped %s message: %v", line.Type, err))
 				continue
 			}
+			if msg == nil {
+				continue // silently skipped (e.g., tool_result-only user message)
+			}
 			messages = append(messages, *msg)
 			idx++
 
@@ -101,10 +104,25 @@ func parseClaudeCodeMessage(raw json.RawMessage, msgType string, idx int) (*mode
 
 	if msgType == "user" {
 		var s string
-		if err := json.Unmarshal(msg.Content, &s); err != nil {
-			return nil, fmt.Errorf("user content not string: %w", err)
+		if err := json.Unmarshal(msg.Content, &s); err == nil {
+			content = s
+		} else {
+			// Array content: tool_result feedback or text+image messages.
+			var blocks []claudeCodeContentBlock
+			if err2 := json.Unmarshal(msg.Content, &blocks); err2 != nil {
+				return nil, fmt.Errorf("user content: %w", err)
+			}
+			var texts []string
+			for _, b := range blocks {
+				if b.Type == "text" && b.Text != "" {
+					texts = append(texts, b.Text)
+				}
+			}
+			if len(texts) == 0 {
+				return nil, nil // tool_result-only, skip silently
+			}
+			content = strings.Join(texts, "\n\n")
 		}
-		content = s
 	} else {
 		var blocks []claudeCodeContentBlock
 		if err := json.Unmarshal(msg.Content, &blocks); err != nil {

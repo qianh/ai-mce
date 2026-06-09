@@ -104,3 +104,20 @@ func TestGrokParserDirNotFound(t *testing.T) {
 		t.Error("expected error for nonexistent directory")
 	}
 }
+
+func TestGrokParserTitleFallback(t *testing.T) {
+	p := NewGrokParser()
+
+	conv, err := p.Parse(testdataPath("grok_session_no_summary"))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+
+	// session_summary is empty, title should be derived from first user query
+	if conv.Content.Title == "" {
+		t.Error("title should not be empty when session_summary is empty")
+	}
+	if conv.Content.Title != "What is a goroutine?" {
+		t.Errorf("title: got %q, want %q", conv.Content.Title, "What is a goroutine?")
+	}
+}
