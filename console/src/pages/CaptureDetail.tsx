@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { getCapture, deleteCapture } from '../lib/api';
+import { ApiError, getCapture, deleteCapture } from '../lib/api';
 import { PLATFORM_LABELS, isDesktop as checkDesktop, formatDate } from '../lib/utils';
 import type { CaptureDetail as CaptureDetailType, Message } from '../lib/types';
 
@@ -10,16 +10,24 @@ export default function CaptureDetail() {
   const [capture, setCapture] = useState<CaptureDetailType | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
+  const [loadError, setLoadError] = useState('');
   const [deleteError, setDeleteError] = useState('');
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   useEffect(() => {
     if (!id) return;
+    setLoading(true);
+    setNotFound(false);
+    setLoadError('');
     getCapture(id)
       .then(setCapture)
       .catch((err) => {
-        if (err instanceof Error && err.message.includes('404')) setNotFound(true);
+        if (err instanceof ApiError && err.status === 404) {
+          setNotFound(true);
+          return;
+        }
+        setLoadError(err instanceof Error ? err.message : '加载失败');
       })
       .finally(() => setLoading(false));
   }, [id]);
@@ -44,7 +52,7 @@ export default function CaptureDetail() {
   if (notFound || !capture) {
     return (
       <div style={{ textAlign: 'center', paddingTop: 80 }}>
-        <div style={{ color: 'var(--ink-3)', marginBottom: 16 }}>记录不存在</div>
+        <div style={{ color: 'var(--ink-3)', marginBottom: 16 }}>{loadError || '记录不存在'}</div>
         <button className="btn btn-ghost btn-sm" onClick={() => navigate('/')}>← 返回列表</button>
       </div>
     );

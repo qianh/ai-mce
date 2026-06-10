@@ -25,8 +25,16 @@ type openCodeMessageData struct {
 }
 
 type openCodePartData struct {
-	Type string `json:"type"`
-	Text string `json:"text"`
+	Type  string              `json:"type"`
+	Text  string              `json:"text"`
+	Tool  string              `json:"tool,omitempty"`
+	State *openCodeToolState  `json:"state,omitempty"`
+}
+
+type openCodeToolState struct {
+	Status string                 `json:"status"`
+	Input  map[string]interface{} `json:"input,omitempty"`
+	Output string                 `json:"output,omitempty"`
 }
 
 // Parse takes path in format "dbpath::sessionID".
@@ -85,21 +93,15 @@ func (p *OpenCodeParser) Parse(path string) (*model.ExtractedConversation, error
 			continue
 		}
 
-		text, err := p.getMessageText(db, msgID)
+		msgs, err := p.getMessageParts(db, msgID, msgData.Role, idx)
 		if err != nil {
 			warnings = append(warnings, fmt.Sprintf("get parts for %s: %v", msgID, err))
 			continue
 		}
-		if text == "" {
-			continue
+		for _, m := range msgs {
+			messages = append(messages, m)
+			idx++
 		}
-
-		messages = append(messages, model.ExtractedMessage{
-			Role:    msgData.Role,
-			Content: text,
-			Index:   idx,
-		})
-		idx++
 	}
 
 	if err := rows.Err(); err != nil {
@@ -110,23 +112,41 @@ func (p *OpenCodeParser) Parse(path string) (*model.ExtractedConversation, error
 		return nil, fmt.Errorf("%w for session %s", ErrNoMessages, sessionID)
 	}
 
-	return BuildResult("opencode", "opencode-sqlite", title, messages, warnings, map[string]any{
+	if title == "" {
+		title = deriveTitle(messages)
+	}
+
+	return BuildResult("opencode", "opencode-sqlite", sessionID, title, messages, warnings, map[string]any{
 		"session_id": sessionID,
 	}), nil
 }
 
-func (p *OpenCodeParser) getMessageText(db *sql.DB, msgID string) (string, error) {
+func (p *OpenCodeParser) getMessageParts(db *sql.DB, msgID, role string, startIdx int) ([]model.ExtractedMessage, error) {
 	rows, err := db.Query(`
 		SELECT data FROM part
 		WHERE message_id = ?
 		ORDER BY time_created ASC
 	`, msgID)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	defer rows.Close()
 
-	var texts []string
+	var msgs []model.ExtractedMessage
+	var textParts []string
+	idx := startIdx
+
+	flush := func() {
+		if len(textParts) > 0 {
+			content := strings.Join(textParts, "\n\n")
+			if strings.TrimSpace(content) != "" {
+				msgs = append(msgs, model.ExtractedMessage{Role: role, Content: content, Index: idx})
+				idx++
+			}
+			textParts = nil
+		}
+	}
+
 	for rows.Next() {
 		var dataStr string
 		if err := rows.Scan(&dataStr); err != nil {
@@ -138,10 +158,44 @@ func (p *OpenCodeParser) getMessageText(db *sql.DB, msgID string) (string, error
 			continue
 		}
 
-		if part.Type == "text" && part.Text != "" {
-			texts = append(texts, part.Text)
+		switch part.Type {
+		case "text":
+			if part.Text != "" {
+				textParts = append(textParts, part.Text)
+			}
+		case "tool":
+			flush()
+			content := renderOpenCodeTool(part)
+			msgs = append(msgs, model.ExtractedMessage{Role: "tool", Content: content, Index: idx})
+			idx++
 		}
 	}
+	flush()
 
-	return strings.Join(texts, "\n\n"), rows.Err()
+	return msgs, rows.Err()
+}
+
+func renderOpenCodeTool(part openCodePartData) string {
+	name := part.Tool
+	if name == "" {
+		name = "unknown"
+	}
+	if part.State == nil {
+		return fmt.Sprintf("[Tool: %s]", name)
+	}
+	var detail string
+	if fp, ok := part.State.Input["filePath"].(string); ok {
+		detail = fp
+	} else if cmd, ok := part.State.Input["command"].(string); ok {
+		runes := []rune(cmd)
+		if len(runes) > 200 {
+			detail = string(runes[:200]) + "…"
+		} else {
+			detail = cmd
+		}
+	}
+	if detail != "" {
+		return fmt.Sprintf("[Tool: %s] %s", name, detail)
+	}
+	return fmt.Sprintf("[Tool: %s]", name)
 }

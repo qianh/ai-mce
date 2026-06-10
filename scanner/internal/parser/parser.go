@@ -40,7 +40,7 @@ func deriveTitle(messages []model.ExtractedMessage) string {
 	return ""
 }
 
-func BuildResult(platform, method, title string, messages []model.ExtractedMessage, warnings []string, metadata map[string]any) *model.ExtractedConversation {
+func BuildResult(platform, method, sessionID, title string, messages []model.ExtractedMessage, warnings []string, metadata map[string]any) *model.ExtractedConversation {
 	messageHashes := make([]string, len(messages))
 	emptyCount := 0
 	for i, m := range messages {
@@ -61,6 +61,7 @@ func BuildResult(platform, method, title string, messages []model.ExtractedMessa
 	return &model.ExtractedConversation{
 		SchemaVersion:    "1.0",
 		ExtractorVersion: "scanner-0.1.0",
+		SessionID:        sessionID,
 		Source: model.Source{
 			Platform:   platform,
 			URL:        "desktop",

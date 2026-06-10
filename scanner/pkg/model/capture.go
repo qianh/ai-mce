@@ -35,6 +35,7 @@ type Hashes struct {
 type ExtractedConversation struct {
 	SchemaVersion     string            `json:"schema_version"`
 	ExtractorVersion  string            `json:"extractor_version"`
+	SessionID         string            `json:"session_id"`
 	Source            Source            `json:"source"`
 	Content           Content           `json:"content"`
 	ExtractionQuality ExtractionQuality `json:"extraction_quality"`
@@ -43,6 +44,7 @@ type ExtractedConversation struct {
 }
 
 type CaptureCreateRequest struct {
+	SessionID         string            `json:"session_id"`
 	Source            Source            `json:"source"`
 	Content           Content           `json:"content"`
 	ExtractionQuality ExtractionQuality `json:"extraction_quality"`
@@ -52,6 +54,7 @@ type CaptureCreateRequest struct {
 
 func (c *ExtractedConversation) ToCaptureCreateRequest() CaptureCreateRequest {
 	return CaptureCreateRequest{
+		SessionID:         c.SessionID,
 		Source:            c.Source,
 		Content:           c.Content,
 		ExtractionQuality: c.ExtractionQuality,

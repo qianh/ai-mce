@@ -33,9 +33,13 @@ type codexSessionMeta struct {
 }
 
 type codexResponseItem struct {
-	Type    string            `json:"type"`
-	Role    string            `json:"role"`
-	Content []codexTextBlock  `json:"content"`
+	Type      string           `json:"type"`
+	Role      string           `json:"role"`
+	Content   []codexTextBlock `json:"content"`
+	Name      string           `json:"name,omitempty"`
+	Arguments string           `json:"arguments,omitempty"`
+	CallID    string           `json:"call_id,omitempty"`
+	Output    string           `json:"output,omitempty"`
 }
 
 type codexTextBlock struct {
@@ -78,26 +82,11 @@ func (p *CodexParser) Parse(path string) (*model.ExtractedConversation, error) {
 				continue
 			}
 
-			if item.Type != "message" {
+			msg := codexItemToMessage(item, idx)
+			if msg == nil {
 				continue
 			}
-			if item.Role == "developer" {
-				continue
-			}
-			if item.Role != "user" && item.Role != "assistant" {
-				continue
-			}
-
-			text := extractCodexText(item.Content, item.Role)
-			if text == "" {
-				continue
-			}
-
-			messages = append(messages, model.ExtractedMessage{
-				Role:    item.Role,
-				Content: text,
-				Index:   idx,
-			})
+			messages = append(messages, *msg)
 			idx++
 		}
 	}
@@ -115,7 +104,52 @@ func (p *CodexParser) Parse(path string) (*model.ExtractedConversation, error) {
 		metadata["session_id"] = sessionID
 	}
 
-	return BuildResult("codex", "codex-jsonl", deriveTitle(messages), messages, warnings, metadata), nil
+	return BuildResult("codex", "codex-jsonl", sessionID, deriveTitle(messages), messages, warnings, metadata), nil
+}
+
+func codexItemToMessage(item codexResponseItem, idx int) *model.ExtractedMessage {
+	switch item.Type {
+	case "message":
+		if item.Role == "developer" {
+			return nil
+		}
+		if item.Role != "user" && item.Role != "assistant" {
+			return nil
+		}
+		text := extractCodexText(item.Content, item.Role)
+		if text == "" {
+			return nil
+		}
+		return &model.ExtractedMessage{Role: item.Role, Content: text, Index: idx}
+
+	case "function_call":
+		content := renderCodexFunctionCall(item)
+		return &model.ExtractedMessage{Role: "tool", Content: content, Index: idx}
+
+	case "function_call_output":
+		content := "[Tool result] " + truncateRunes(item.Output, 500)
+		return &model.ExtractedMessage{Role: "tool", Content: content, Index: idx}
+
+	default:
+		return nil
+	}
+}
+
+func renderCodexFunctionCall(item codexResponseItem) string {
+	name := item.Name
+	if name == "" {
+		return "[Tool call]"
+	}
+	var args map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(item.Arguments), &args); err == nil {
+		if cmd := jsonString(args["command"]); cmd != "" {
+			return fmt.Sprintf("[Tool: %s] %s", name, truncateRunes(cmd, 200))
+		}
+		if fp := jsonString(args["file_path"]); fp != "" {
+			return fmt.Sprintf("[Tool: %s] %s", name, fp)
+		}
+	}
+	return fmt.Sprintf("[Tool: %s]", name)
 }
 
 func extractCodexText(blocks []codexTextBlock, role string) string {

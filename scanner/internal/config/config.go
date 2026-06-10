@@ -16,6 +16,7 @@ type Config struct {
 	CompletionThresholdMin int
 	MaxRetries             int
 	Concurrency            int
+	MinMessages            int
 }
 
 type ToolPath struct {
@@ -46,6 +47,7 @@ func Default() Config {
 		CompletionThresholdMin: 10,
 		MaxRetries:             3,
 		Concurrency:            8,
+		MinMessages:            4,
 	}
 }
 
@@ -63,6 +65,13 @@ func FromEnv() Config {
 			cfg.Concurrency = n
 		} else {
 			log.Printf("warning: invalid MCE_CONCURRENCY %q, using default %d", v, cfg.Concurrency)
+		}
+	}
+	if v := os.Getenv("MCE_MIN_MESSAGES"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			cfg.MinMessages = n
+		} else {
+			log.Printf("warning: invalid MCE_MIN_MESSAGES %q, using default %d", v, cfg.MinMessages)
 		}
 	}
 

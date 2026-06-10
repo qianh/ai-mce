@@ -4,11 +4,9 @@ set -euo pipefail
 SCANNER="./mce-scanner"
 CREDS="$HOME/.mce-scanner/creds.json"
 
-# 确保 scanner 二进制存在，否则先构建
-if [ ! -f "$SCANNER" ]; then
-  echo "⚙️  构建 mce-scanner..."
-  (cd scanner && go build -o "../mce-scanner" ./cmd/mce-scanner)
-fi
+# 每次都重新构建 scanner，确保代码变更生效
+echo "⚙️  构建 mce-scanner..."
+(cd scanner && go build -o "../mce-scanner" ./cmd/mce-scanner)
 
 # 未登录则先交互登录（阻塞，直到登录成功）
 if [ ! -f "$CREDS" ]; then

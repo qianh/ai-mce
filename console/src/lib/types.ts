@@ -14,7 +14,7 @@ export interface CaptureListItem {
 }
 
 export interface Message {
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'tool';
   content: string;
   index: number;
 }

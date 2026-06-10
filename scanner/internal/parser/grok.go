@@ -109,9 +109,14 @@ func (p *GrokParser) Parse(dir string) (*model.ExtractedConversation, error) {
 		return nil, fmt.Errorf("%w in %s", ErrNoMessages, chatPath)
 	}
 
+	sessionID := summary.Info.ID
+	if sessionID == "" {
+		sessionID = filepath.Base(dir)
+	}
+
 	metadata := map[string]any{}
-	if summary.Info.ID != "" {
-		metadata["session_id"] = summary.Info.ID
+	if sessionID != "" {
+		metadata["session_id"] = sessionID
 	}
 
 	title := summary.SessionSummary
@@ -119,7 +124,7 @@ func (p *GrokParser) Parse(dir string) (*model.ExtractedConversation, error) {
 		title = deriveTitle(messages)
 	}
 
-	return BuildResult("grok", "grok-multi-file", title, messages, warnings, metadata), nil
+	return BuildResult("grok", "grok-multi-file", sessionID, title, messages, warnings, metadata), nil
 }
 
 func extractGrokUserQuery(raw json.RawMessage) string {

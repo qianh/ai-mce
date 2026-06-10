@@ -1,6 +1,8 @@
 package parser
 
 import (
+	"errors"
+	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
@@ -116,5 +118,20 @@ func TestClaudeCodeParserFileNotFound(t *testing.T) {
 	_, err := p.Parse("/nonexistent/path.jsonl")
 	if err == nil {
 		t.Error("expected error for nonexistent file")
+	}
+}
+
+func TestClaudeCodeParserEmptySession(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "empty.jsonl")
+	content := `{"type":"ai-title","aiTitle":"Title only","sessionId":"sess-empty"}`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	p := NewClaudeCodeParser()
+	_, err := p.Parse(path)
+	if !errors.Is(err, ErrNoMessages) {
+		t.Fatalf("expected ErrNoMessages, got %v", err)
 	}
 }

@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { listCaptures } from '../lib/api';
+import { ApiError, listCaptures, getCapture, deleteCapture } from '../lib/api';
 import { clearTokens } from '../lib/auth';
-import { PLATFORM_LABELS, platformLabel, isDesktop, formatDate } from '../lib/utils';
-import type { CaptureListItem } from '../lib/types';
+import { PLATFORM_LABELS, platformLabel, isDesktop as checkDesktop, formatDate } from '../lib/utils';
+import type { CaptureListItem, CaptureDetail, Message } from '../lib/types';
+import { isCurrentDetailRequest } from './captureDetailState';
 import './captures.css';
 
 const PAGE_SIZE = 20;
@@ -46,7 +47,16 @@ export default function CaptureList() {
   const [retryKey, setRetryKey] = useState(0);
   const [sourceSide, setSourceSide] = useState<'' | 'browser' | 'desktop'>('');
   const [sourcePlatform, setSourcePlatform] = useState('');
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [detail, setDetail] = useState<CaptureDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailNotFound, setDetailNotFound] = useState(false);
+  const [detailError, setDetailError] = useState('');
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
   const cancelRef = useRef<{ cancelled: boolean } | null>(null);
+  const detailRequestRef = useRef(0);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -86,6 +96,62 @@ export default function CaptureList() {
   function handleLogout() {
     clearTokens();
     navigate('/login', { replace: true });
+  }
+
+  function openDetail(id: string) {
+    const requestId = detailRequestRef.current + 1;
+    detailRequestRef.current = requestId;
+    setSelectedId(id);
+    setDetail(null);
+    setDetailLoading(true);
+    setDetailNotFound(false);
+    setDetailError('');
+    setConfirmDelete(false);
+    setDeleteError('');
+    getCapture(id)
+      .then(nextDetail => {
+        if (!isCurrentDetailRequest(detailRequestRef.current, requestId)) return;
+        setDetail(nextDetail);
+      })
+      .catch((err) => {
+        if (!isCurrentDetailRequest(detailRequestRef.current, requestId)) return;
+        if (err instanceof ApiError && err.status === 404) {
+          setDetailNotFound(true);
+          return;
+        }
+        setDetailError(err instanceof Error ? err.message : '详情加载失败');
+      })
+      .finally(() => {
+        if (isCurrentDetailRequest(detailRequestRef.current, requestId)) {
+          setDetailLoading(false);
+        }
+      });
+  }
+
+  function closeDetail() {
+    detailRequestRef.current += 1;
+    setSelectedId(null);
+    setDetail(null);
+    setDetailNotFound(false);
+    setDetailError('');
+    setDetailLoading(false);
+    setConfirmDelete(false);
+    setDeleteError('');
+  }
+
+  async function handleDelete() {
+    if (!selectedId) return;
+    setDeleting(true);
+    setDeleteError('');
+    try {
+      await deleteCapture(selectedId);
+      setCaptures(prev => prev.filter(c => c.id !== selectedId));
+      closeDetail();
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : '删除失败');
+    } finally {
+      setDeleting(false);
+    }
   }
 
   const showPager = !loading && !error && (captures.length > 0 || page > 1);
@@ -165,13 +231,13 @@ export default function CaptureList() {
             <div>
               {captures.map(c => {
                 const dot = CHAN_COLORS[c.source_platform] ?? '#9a9a9f';
-                const desktop = isDesktop(c);
+                const desktop = checkDesktop(c);
                 return (
                   <div
                     key={c.id}
                     className="cap-row cap-trow"
                     role="row"
-                    onClick={() => navigate(`/capture/${c.id}`)}
+                    onClick={() => openDetail(c.id)}
                   >
                     <div className="cap-title-cell">
                       <span className="cap-ficon"><DocIcon /></span>
@@ -213,6 +279,72 @@ export default function CaptureList() {
             <button className="cap-pager-btn" disabled={!hasNext} onClick={() => setPage(p => p + 1)}>
               下一页 →
             </button>
+          </div>
+        )}
+
+        {selectedId && (
+          <div className="cap-modal-overlay" onClick={closeDetail}>
+            <div className="cap-modal" onClick={e => e.stopPropagation()}>
+              {detailLoading && (
+                <div className="cap-modal-state">加载中…</div>
+              )}
+              {detailNotFound && (
+                <div className="cap-modal-state">记录不存在</div>
+              )}
+              {!detailLoading && detailError && (
+                <div className="cap-modal-state">{detailError}</div>
+              )}
+              {!detailLoading && !detailNotFound && !detailError && detail && (() => {
+                const desktop = checkDesktop(detail);
+                return (
+                  <>
+                    <div className="cap-modal-header">
+                      <div className="cap-modal-meta">
+                        <h2 className="cap-modal-title">{detail.source_title || '(无标题)'}</h2>
+                        <div className="cap-modal-tags">
+                          <span className="cap-modal-pill">{PLATFORM_LABELS[detail.source_platform] ?? detail.source_platform}</span>
+                          <span className={`cap-modal-pill ${desktop ? 'cap-modal-pill-desktop' : 'cap-modal-pill-ext'}`}>
+                            {desktop ? '桌面端' : '浏览器端'}
+                          </span>
+                          <span className="cap-modal-info">{formatDate(detail.created_at)}</span>
+                          <span className="cap-modal-info">{detail.message_count} 条消息</span>
+                        </div>
+                      </div>
+                      <div className="cap-modal-actions">
+                        {!confirmDelete ? (
+                          <button className="cap-modal-btn cap-modal-btn-danger" onClick={() => setConfirmDelete(true)}>删除</button>
+                        ) : (
+                          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                            <span style={{ fontSize: 12, color: 'var(--cap-ink-2)' }}>确认删除？</span>
+                            <button className="cap-modal-btn cap-modal-btn-danger" disabled={deleting} onClick={handleDelete}>
+                              {deleting ? '删除中…' : '确认'}
+                            </button>
+                            <button className="cap-modal-btn" onClick={() => setConfirmDelete(false)}>取消</button>
+                          </div>
+                        )}
+                        {deleteError && <div style={{ color: '#d70015', fontSize: 12, marginTop: 6 }}>{deleteError}</div>}
+                      </div>
+                      <button className="cap-modal-close" onClick={closeDetail} aria-label="关闭">✕</button>
+                    </div>
+                    <div className="cap-modal-body">
+                      {(detail.messages as Message[]).map((msg, i) => {
+                        const roleClass = msg.role === 'user' ? 'cap-msg-user' : msg.role === 'tool' ? 'cap-msg-tool' : 'cap-msg-ai';
+                        const bubbleClass = msg.role === 'user' ? 'cap-msg-bubble-user' : msg.role === 'tool' ? 'cap-msg-bubble-tool' : 'cap-msg-bubble-ai';
+                        const roleLabel = msg.role === 'user' ? '用户' : msg.role === 'tool' ? 'Tool' : 'AI';
+                        return (
+                          <div key={i} className={`cap-msg ${roleClass}`}>
+                            <div className="cap-msg-role">{roleLabel}</div>
+                            <div className={`cap-msg-bubble ${bubbleClass}`}>
+                              {msg.content}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
           </div>
         )}
 

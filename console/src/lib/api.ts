@@ -3,6 +3,16 @@ import type { CaptureListItem, CaptureDetail, ListParams } from './types';
 
 const BASE_URL: string = (import.meta as unknown as { env?: Record<string, string> }).env?.API_URL ?? 'http://localhost:8008';
 
+export class ApiError extends Error {
+  constructor(
+    public readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
 async function request<T>(
   path: string,
   options: RequestInit = {},
@@ -31,7 +41,7 @@ async function request<T>(
 
   if (!resp.ok) {
     const body = await resp.json().catch(() => ({}));
-    throw new Error((body as { detail?: string }).detail ?? `HTTP ${resp.status}`);
+    throw new ApiError(resp.status, (body as { detail?: string }).detail ?? `HTTP ${resp.status}`);
   }
 
   if (resp.status === 204) return undefined as T;

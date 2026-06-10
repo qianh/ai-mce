@@ -2,8 +2,10 @@ package watermark
 
 import (
 	"database/sql"
+	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -11,6 +13,7 @@ import (
 
 type DB struct {
 	db *sql.DB
+	mu sync.Mutex
 }
 
 type PendingUpload struct {
@@ -24,6 +27,7 @@ type PendingUpload struct {
 
 type Stats struct {
 	TrackedSessions int
+	SkippedSessions int
 	PendingRetries  int
 	LastScanAt      string
 }
@@ -33,11 +37,13 @@ func Open(dbPath string) (*DB, error) {
 		return nil, err
 	}
 
-	db, err := sql.Open("sqlite", dbPath)
+	// busy_timeout retries on SQLITE_BUSY; WAL allows concurrent readers across processes.
+	dsn := fmt.Sprintf("%s?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)", dbPath)
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
 	}
-	db.SetMaxOpenConns(1) // serialize concurrent writes through a single connection
+	db.SetMaxOpenConns(1)
 
 	if _, err := db.Exec(`
 		CREATE TABLE IF NOT EXISTS sessions (
@@ -69,6 +75,9 @@ func (d *DB) Close() error {
 }
 
 func (d *DB) IsProcessed(filePath, contentHash string) (bool, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
 	var count int
 	err := d.db.QueryRow(
 		`SELECT COUNT(*) FROM sessions WHERE file_path = ? AND content_hash = ?`,
@@ -81,6 +90,9 @@ func (d *DB) IsProcessed(filePath, contentHash string) (bool, error) {
 }
 
 func (d *DB) MarkUploaded(filePath, contentHash, platform, sessionID string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
 	_, err := d.db.Exec(`
 		INSERT INTO sessions (file_path, content_hash, platform, session_id, uploaded_at, status)
 		VALUES (?, ?, ?, ?, ?, 'uploaded')
@@ -95,6 +107,9 @@ func (d *DB) MarkUploaded(filePath, contentHash, platform, sessionID string) err
 }
 
 func (d *DB) SavePending(filePath, payload, lastError string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
 	_, err := d.db.Exec(`
 		INSERT INTO pending_uploads (file_path, payload, retry_count, created_at, last_error)
 		VALUES (?, ?, 3, ?, ?)
@@ -103,6 +118,9 @@ func (d *DB) SavePending(filePath, payload, lastError string) error {
 }
 
 func (d *DB) GetPendingUploads() ([]PendingUpload, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
 	rows, err := d.db.Query(`SELECT id, file_path, payload, retry_count, created_at, last_error FROM pending_uploads`)
 	if err != nil {
 		return nil, err
@@ -121,13 +139,22 @@ func (d *DB) GetPendingUploads() ([]PendingUpload, error) {
 }
 
 func (d *DB) RemovePending(id int64) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
 	_, err := d.db.Exec(`DELETE FROM pending_uploads WHERE id = ?`, id)
 	return err
 }
 
 func (d *DB) Stats() (Stats, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
 	var s Stats
-	if err := d.db.QueryRow(`SELECT COUNT(*) FROM sessions`).Scan(&s.TrackedSessions); err != nil {
+	if err := d.db.QueryRow(`SELECT COUNT(*) FROM sessions WHERE content_hash NOT LIKE 'skipped:%' AND content_hash NOT LIKE 'empty:%'`).Scan(&s.TrackedSessions); err != nil {
+		return s, err
+	}
+	if err := d.db.QueryRow(`SELECT COUNT(*) FROM sessions WHERE content_hash LIKE 'skipped:%'`).Scan(&s.SkippedSessions); err != nil {
 		return s, err
 	}
 	if err := d.db.QueryRow(`SELECT COUNT(*) FROM pending_uploads`).Scan(&s.PendingRetries); err != nil {
