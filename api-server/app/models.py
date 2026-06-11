@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import DateTime, ForeignKey, Index, String, Text, func, text
+from sqlalchemy import DateTime, ForeignKey, Integer, Index, String, Text, func, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.types import JSON, Uuid
 
@@ -60,6 +60,7 @@ class Capture(Base):
     extraction_quality: Mapped[dict] = mapped_column(JSON, nullable=False)
     messages: Mapped[list[dict]] = mapped_column(JSON, nullable=False)
     metadata_json: Mapped[dict] = mapped_column("metadata", JSON, nullable=False, default=dict)
+    message_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
     analysis_status: Mapped[str] = mapped_column(String(32), nullable=False, default="not_started")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())

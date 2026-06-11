@@ -90,6 +90,19 @@ describe('cloud api client', () => {
     });
   });
 
+  it('supports filtering captures to browser sources', async () => {
+    fetchMock.mockResolvedValue(jsonResponse([]));
+    const client = createCloudApiClient('https://memory.example.com');
+
+    await client.listCaptures('access', { sourceSide: 'browser' });
+
+    expect(fetchMock).toHaveBeenCalledWith('https://memory.example.com/v1/captures?source_side=browser', {
+      method: 'GET',
+      headers: { Authorization: 'Bearer access' },
+      body: undefined,
+    });
+  });
+
   it('supports login, refresh, detail, and delete routes', async () => {
     fetchMock
       .mockResolvedValueOnce(jsonResponse({ user: { id: 'user-1', email: 'me@example.com' }, access_token: 'a', refresh_token: 'r' }))

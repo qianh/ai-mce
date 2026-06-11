@@ -31,6 +31,10 @@ export interface CloudCaptureDetail extends CloudCaptureListItem {
   messages: Array<{ role: string; content: string; index: number }>;
 }
 
+export type CloudCaptureListParams = {
+  sourceSide?: 'browser' | 'desktop';
+};
+
 export class CloudApiError extends Error {
   readonly status: number;
 
@@ -49,6 +53,13 @@ type RequestOptions = {
 
 function normalizeBaseUrl(apiBaseUrl: string): string {
   return apiBaseUrl.replace(/\/+$/, '');
+}
+
+function captureListPath(params: CloudCaptureListParams = {}): string {
+  const qs = new URLSearchParams();
+  if (params.sourceSide) qs.set('source_side', params.sourceSide);
+  const query = qs.toString();
+  return query ? `/v1/captures?${query}` : '/v1/captures';
 }
 
 async function readError(response: Response): Promise<string> {
@@ -122,8 +133,8 @@ export function createCloudApiClient(apiBaseUrl: string) {
         body: conversation,
       });
     },
-    listCaptures(token: string) {
-      return request<CloudCaptureListItem[]>('/v1/captures', { token });
+    listCaptures(token: string, params?: CloudCaptureListParams) {
+      return request<CloudCaptureListItem[]>(captureListPath(params), { token });
     },
     getCapture(token: string, id: string) {
       return request<CloudCaptureDetail>(`/v1/captures/${encodeURIComponent(id)}`, { token });

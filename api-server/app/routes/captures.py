@@ -17,8 +17,15 @@ def current_user_id(credentials: HTTPAuthorizationCredentials | None = Depends(_
     return str(decode_access_token(credentials.credentials))
 
 
+def _touch_session(user_id: str, client: SupabaseRestClient) -> None:
+    """Extend all active refresh tokens for the user (best-effort, ignore errors)."""
+    try:
+        client.touch_refresh_tokens(user_id)
+    except Exception:
+        pass  # Session extension must never break the primary request.
+
+
 def _capture_item(row: dict) -> CaptureListItem:
-    messages = list(row.get("messages") or [])
     return CaptureListItem(
         id=row["id"],
         source_platform=row["source_platform"],
@@ -27,9 +34,9 @@ def _capture_item(row: dict) -> CaptureListItem:
         content_hash=row["content_hash"],
         source_fingerprint=row["source_fingerprint"],
         extraction_quality=row["extraction_quality"],
-        metadata=row["metadata"],
+        metadata=row.get("metadata", {}),
         analysis_status=row["analysis_status"],
-        message_count=row.get("message_count") or len(messages),
+        message_count=row.get("message_count") or 0,
         created_at=row["created_at"],
         updated_at=row["updated_at"],
     )
@@ -53,6 +60,7 @@ def create_capture(
         raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
 
     response.status_code = status.HTTP_201_CREATED if created else status.HTTP_200_OK
+    _touch_session(user_id, client)
     return CaptureCreateResponse(id=row["id"], created=created, updated_at=row["updated_at"])
 
 
@@ -107,4 +115,5 @@ def delete_capture(
         raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
     if not deleted:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Capture not found")
+    _touch_session(user_id, client)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

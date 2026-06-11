@@ -26,7 +26,10 @@ export default function CaptureList() {
       const hasCloudSession = Boolean(settings.cloud_refresh_token);
       if (hasCloudSession) {
         try {
-          const cloudCaptures = await listCapturesWithSessionRefresh({ getSettings, setSetting });
+          const cloudCaptures = await listCapturesWithSessionRefresh(
+            { getSettings, setSetting },
+            { sourceSide: 'browser' },
+          );
           mergedCaptures = mergeCaptures(localCaptures, cloudCaptures);
         } catch {
           mergedCaptures = localCaptures;
@@ -138,6 +141,7 @@ function mergeCaptures(localCaptures: Capture[], cloudCaptures: CloudCaptureList
   const localContentHashes = new Set(localCaptures.map((capture) => capture.content_hash).filter(Boolean));
   const cloudOnlyCaptures = cloudCaptures
     .filter((capture) => {
+      if (capture.source_url === 'desktop') return false;
       if (localCloudIds.has(capture.id)) return false;
       if (capture.source_fingerprint && localFingerprints.has(capture.source_fingerprint)) return false;
       if (capture.content_hash && localContentHashes.has(capture.content_hash)) return false;

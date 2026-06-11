@@ -80,6 +80,20 @@ const listCloudCaptures = vi.hoisted(() => vi.fn().mockResolvedValue([
     created_at: '2026-06-05T09:15:55.000Z',
     updated_at: '2026-06-05T09:15:55.000Z',
   },
+  {
+    id: 'cloud-desktop-1',
+    source_platform: 'opencode',
+    source_url: 'desktop',
+    source_title: 'OpenCode 桌面端会话',
+    content_hash: 'hash-desktop-1',
+    source_fingerprint: 'opencode:desktop:1',
+    extraction_quality: { confidence: 0.92, method: 'desktop_scan', warnings: [], message_count: 1, empty_message_count: 0 },
+    metadata: {},
+    analysis_status: 'not_started',
+    message_count: 1,
+    created_at: '2026-06-06T09:15:55.000Z',
+    updated_at: '2026-06-06T09:15:55.000Z',
+  },
 ]));
 
 vi.mock('../../src/db/bridge', () => ({
@@ -148,10 +162,14 @@ describe('CaptureList', () => {
   it('fetches cloud captures and merges them without duplicating local cloud links', async () => {
     const { container, root } = await renderList();
 
-    expect(listCloudCaptures).toHaveBeenCalledWith(expect.objectContaining({ getSettings, setSetting }));
+    expect(listCloudCaptures).toHaveBeenCalledWith(
+      expect.objectContaining({ getSettings, setSetting }),
+      { sourceSide: 'browser' },
+    );
     expect(container.textContent).toContain('4 / 4 条');
     expect(container.textContent?.match(/gifgaff 卡使用指南/g)).toHaveLength(1);
     expect(container.textContent).toContain('另一设备上传的云端记录');
+    expect(container.textContent).not.toContain('OpenCode 桌面端会话');
 
     root.unmount();
     container.remove();
@@ -170,8 +188,12 @@ describe('CaptureList', () => {
 
     const { container, root } = await renderList();
 
-    expect(listCloudCaptures).toHaveBeenCalledWith(expect.objectContaining({ getSettings, setSetting }));
+    expect(listCloudCaptures).toHaveBeenCalledWith(
+      expect.objectContaining({ getSettings, setSetting }),
+      { sourceSide: 'browser' },
+    );
     expect(container.textContent).toContain('另一设备上传的云端记录');
+    expect(container.textContent).not.toContain('OpenCode 桌面端会话');
     expect(container.textContent).toContain('上传云端');
 
     root.unmount();

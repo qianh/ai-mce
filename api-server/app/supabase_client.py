@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
@@ -23,7 +23,10 @@ class SupabaseRestClient:
     def __init__(self, supabase_url: str, service_role_key: str, http_client: httpx.Client | None = None):
         self.base_url = supabase_url.rstrip("/")
         self.service_role_key = service_role_key
-        self.http = http_client or httpx.Client(timeout=20)
+        self.http = http_client or httpx.Client(
+            timeout=20,
+            limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
+        )
 
     def register(self, email: str, password: str) -> dict[str, Any]:
         rows = self._request(
@@ -90,6 +93,20 @@ class SupabaseRestClient:
         )
         return user
 
+    def touch_refresh_tokens(self, user_id: str, extend_days: int = 30) -> None:
+        """Extend all active refresh tokens for a user (sliding expiration on activity)."""
+        now = datetime.now(UTC)
+        new_expiry = now + timedelta(days=extend_days)
+        self._request(
+            "PATCH",
+            "/rest/v1/refresh_tokens",
+            params={
+                "user_id": f"eq.{user_id}",
+                "revoked_at": "is.null",
+            },
+            json={"expires_at": new_expiry.isoformat()},
+        )
+
     def logout(self, refresh_token: str) -> None:
         self._request(
             "PATCH",
@@ -98,20 +115,47 @@ class SupabaseRestClient:
             json={"revoked_at": datetime.now(UTC).isoformat()},
         )
 
+    def _find_capture_by(self, user_id: str, field: str, value: str) -> dict[str, Any] | None:
+        if not value:
+            return None
+        rows = self._request(
+            "GET",
+            "/rest/v1/captures",
+            params={
+                "select": "id",
+                "user_id": f"eq.{user_id}",
+                field: f"eq.{value}",
+                "limit": "1",
+            },
+        )
+        return rows[0] if rows else None
+
+    def _update_capture(self, capture_id: str, values: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+        rows = self._request(
+            "PATCH",
+            "/rest/v1/captures",
+            params={"id": f"eq.{capture_id}"},
+            json=values,
+            prefer="return=representation",
+        )
+        return rows[0], False
+
     def create_or_update_capture(self, user_id: str, req: CaptureCreateRequest) -> tuple[dict[str, Any], bool]:
         values = capture_values(req)
         values["user_id"] = user_id
-        existing = self._find_capture_by_content_hash(user_id, values["content_hash"])
-        if existing is not None:
-            rows = self._request(
-                "PATCH",
-                "/rest/v1/captures",
-                params={"id": f"eq.{existing['id']}"},
-                json=values,
-                prefer="return=representation",
-            )
-            return rows[0], False
 
+        # 1. Exact same content → update in place
+        existing = self._find_capture_by(user_id, "content_hash", values["content_hash"])
+        if existing is not None:
+            return self._update_capture(existing["id"], values)
+
+        # 2. Same conversation, new content → update existing record
+        if values.get("source_fingerprint"):
+            existing = self._find_capture_by(user_id, "source_fingerprint", values["source_fingerprint"])
+            if existing is not None:
+                return self._update_capture(existing["id"], values)
+
+        # 3. Brand new capture → insert
         insert_values = {"id": str(uuid4()), **values}
         try:
             rows = self._request(
@@ -123,7 +167,12 @@ class SupabaseRestClient:
             return rows[0], True
         except SupabaseApiError as exc:
             if exc.status_code == 409:
-                existing = self._find_capture_by_content_hash(user_id, values["content_hash"])
+                # Race: another request inserted between our checks. Retry by fingerprint.
+                if values.get("source_fingerprint"):
+                    existing = self._find_capture_by(user_id, "source_fingerprint", values["source_fingerprint"])
+                    if existing is not None:
+                        return self._update_capture(existing["id"], values)
+                existing = self._find_capture_by(user_id, "content_hash", values["content_hash"])
                 if existing:
                     return existing, False
             raise
@@ -137,7 +186,7 @@ class SupabaseRestClient:
         offset: int = 0,
     ) -> list[dict[str, Any]]:
         params: dict[str, str] = {
-            "select": "*",
+            "select": "id,source_platform,source_url,source_title,content_hash,source_fingerprint,extraction_quality,analysis_status,message_count,created_at,updated_at",
             "user_id": f"eq.{user_id}",
             "order": "created_at.desc",
             "limit": str(limit),
@@ -177,21 +226,6 @@ class SupabaseRestClient:
             },
         )
         return True
-
-    def _find_capture_by_content_hash(self, user_id: str, content_hash: str) -> dict[str, Any] | None:
-        if not content_hash:
-            return None
-        rows = self._request(
-            "GET",
-            "/rest/v1/captures",
-            params={
-                "select": "*",
-                "user_id": f"eq.{user_id}",
-                "content_hash": f"eq.{content_hash}",
-                "limit": "1",
-            },
-        )
-        return rows[0] if rows else None
 
     def _request(
         self,
@@ -235,6 +269,7 @@ def capture_values(req: CaptureCreateRequest) -> dict[str, Any]:
         "source_fingerprint": hashes.get("source_fingerprint") or "",
         "extraction_quality": req.extraction_quality,
         "messages": messages,
+        "message_count": len(messages),
         "metadata": {
             "source": source,
             "metadata": req.metadata or {},

@@ -1,5 +1,5 @@
 import { CloudApiError, createCloudApiClient } from './cloud-api';
-import type { CloudCaptureDetail, CloudCaptureListItem, CloudCaptureUploadResponse } from './cloud-api';
+import type { CloudCaptureDetail, CloudCaptureListItem, CloudCaptureListParams, CloudCaptureUploadResponse } from './cloud-api';
 import type { ExtractedConversation, Settings } from './types';
 
 type CloudClient = ReturnType<typeof createCloudApiClient>;
@@ -111,6 +111,12 @@ async function refreshAccessTokenDeduped(deps: CloudSessionDeps, options: Refres
   return refreshPromise;
 }
 
+async function clearCloudSession(deps: CloudSessionDeps): Promise<void> {
+  await deps.setSetting('cloud_access_token', null);
+  await deps.setSetting('cloud_refresh_token', null);
+  await deps.setSetting('cloud_user_email', null);
+}
+
 async function recoverAccessTokenAfterUnauthorized(deps: CloudSessionDeps, failedToken: string): Promise<string> {
   const settings = await getActiveCloudSettings(deps);
 
@@ -122,7 +128,14 @@ async function recoverAccessTokenAfterUnauthorized(deps: CloudSessionDeps, faile
     return settings.cloud_access_token;
   }
 
-  return refreshAccessTokenDeduped(deps, { force: true });
+  try {
+    return await refreshAccessTokenDeduped(deps, { force: true });
+  } catch (refreshError) {
+    if (refreshError instanceof CloudApiError && refreshError.status === 401) {
+      await clearCloudSession(deps);
+    }
+    throw refreshError;
+  }
 }
 
 export async function ensureCloudAccessToken(deps: CloudSessionDeps): Promise<string | null> {
@@ -139,7 +152,10 @@ export async function ensureCloudAccessToken(deps: CloudSessionDeps): Promise<st
 export async function refreshCloudSessionIfNeeded(deps: CloudSessionDeps): Promise<void> {
   try {
     await ensureCloudAccessToken(deps);
-  } catch {
+  } catch (error) {
+    if (error instanceof CloudApiError && error.status === 401) {
+      await clearCloudSession(deps);
+    }
     // Background refresh should never interrupt capture flows.
   }
 }
@@ -213,9 +229,10 @@ export async function getCaptureWithSessionRefresh(
 
 export async function listCapturesWithSessionRefresh(
   deps: CloudSessionDeps,
+  params?: CloudCaptureListParams,
 ): Promise<CloudCaptureListItem[]> {
   return withCloudSessionRefresh(
-    (token, client) => client.listCaptures(token),
+    (token, client) => client.listCaptures(token, params),
     deps,
   );
 }
