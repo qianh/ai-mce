@@ -122,7 +122,7 @@ class SupabaseRestClient:
             "GET",
             "/rest/v1/captures",
             params={
-                "select": "id",
+                "select": "id,message_count",
                 "user_id": f"eq.{user_id}",
                 field: f"eq.{value}",
                 "limit": "1",
@@ -135,7 +135,7 @@ class SupabaseRestClient:
             "PATCH",
             "/rest/v1/captures",
             params={"id": f"eq.{capture_id}"},
-            json=values,
+            json={**values, "updated_at": datetime.now(UTC).isoformat()},
             prefer="return=representation",
         )
         return rows[0], False
@@ -153,7 +153,12 @@ class SupabaseRestClient:
         if values.get("source_fingerprint"):
             existing = self._find_capture_by(user_id, "source_fingerprint", values["source_fingerprint"])
             if existing is not None:
-                return self._update_capture(existing["id"], values)
+                if values["message_count"] >= (existing.get("message_count") or 0):
+                    return self._update_capture(existing["id"], values)
+                # Partial re-capture (e.g. lazy-loaded page missing history): update
+                # metadata but preserve existing messages to avoid data regression.
+                safe_values = {k: v for k, v in values.items() if k not in ("messages", "message_count")}
+                return self._update_capture(existing["id"], safe_values)
 
         # 3. Brand new capture → insert
         insert_values = {"id": str(uuid4()), **values}
@@ -174,7 +179,7 @@ class SupabaseRestClient:
                         return self._update_capture(existing["id"], values)
                 existing = self._find_capture_by(user_id, "content_hash", values["content_hash"])
                 if existing:
-                    return existing, False
+                    return self._update_capture(existing["id"], values)
             raise
 
     def list_captures(

@@ -175,3 +175,76 @@ def test_create_capture_updates_by_source_fingerprint_when_content_changes():
     assert result["content_hash"] == "new-hash"
     # GET(content_hash) → GET(fingerprint) → PATCH
     assert [call.method for call in calls] == ["GET", "GET", "PATCH"]
+
+
+def test_create_capture_preserves_messages_when_partial_recapture():
+    """
+    Re-capturing the same conversation with FEWER messages (lazy-loaded page) must not
+    overwrite the existing message data — only metadata is patched.
+    """
+    calls = []
+    existing_row = {
+        "id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+        "user_id": "11111111-1111-1111-1111-111111111111",
+        "source_platform": "chatgpt",
+        "source_url": "https://chatgpt.com/c/abc",
+        "source_title": "Long Chat",
+        "content_hash": "old-hash",
+        "source_fingerprint": "chatgpt:abc",
+        "extraction_quality": {"confidence": 0.9},
+        "messages": [{"role": "user", "content": f"msg {i}", "index": i} for i in range(20)],
+        "metadata": {},
+        "analysis_status": "not_started",
+        "message_count": 20,
+        "created_at": "2026-06-05T10:00:00Z",
+        "updated_at": "2026-06-05T10:00:00Z",
+    }
+    # Server returns the preserved row (message_count unchanged)
+    preserved_row = {**existing_row, "source_title": "Long Chat (continued)", "updated_at": "2026-06-05T12:00:00Z"}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        if request.method == "GET":
+            if request.url.params.get("content_hash") == "eq.partial-hash":
+                return httpx.Response(200, json=[])
+            if request.url.params.get("source_fingerprint") == "eq.chatgpt:abc":
+                return httpx.Response(200, json=[existing_row])
+            return httpx.Response(200, json=[])
+        if request.method == "PATCH":
+            body = json.loads(request.content)
+            assert "messages" not in body, "messages must not be overwritten on partial recapture"
+            assert "message_count" not in body, "message_count must not be overwritten on partial recapture"
+            return httpx.Response(200, json=[preserved_row])
+        return httpx.Response(500)
+
+    client = SupabaseRestClient(
+        "https://example.supabase.co",
+        "service-key",
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    result, is_created = client.create_or_update_capture(
+        "11111111-1111-1111-1111-111111111111",
+        CaptureCreateRequest(
+            source={
+                "platform": "chatgpt",
+                "url": "https://chatgpt.com/c/abc",
+                "browser_title": "Long Chat (continued)",
+                "captured_at": "2026-06-05T12:00:00.000Z",
+            },
+            content={
+                "title": "Long Chat (continued)",
+                "messages": [{"role": "user", "content": "only recent msg", "index": 0}],
+            },
+            extraction_quality={"confidence": 0.6},
+            hashes={
+                "content_hash": "partial-hash",
+                "message_hashes": ["m1"],
+                "source_fingerprint": "chatgpt:abc",
+            },
+        ),
+    )
+
+    assert is_created is False
+    assert result["message_count"] == 20  # existing count preserved
+    assert [call.method for call in calls] == ["GET", "GET", "PATCH"]

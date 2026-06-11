@@ -70,7 +70,9 @@ export class ChatGPTExtractor implements ConversationExtractor {
   async extract(document: Document, url: string): Promise<ExtractedConversation> {
     const observedNodes = chatgptObserver.getMessages();
     const domNodes = Array.from(document.querySelectorAll('[data-message-author-role]'));
-    const nodes = observedNodes.length > 0 ? observedNodes : domNodes;
+    // Use whichever source has more nodes: observer may track nodes removed from DOM by
+    // virtual scrolling; DOM may have nodes the observer missed on initial page load.
+    const nodes = observedNodes.length >= domNodes.length ? observedNodes : domNodes;
 
     const messages = await this.nodesToMessages(nodes);
     const allText = messages.map((m) => `${m.role}: ${m.content}`).join('\n\n');
@@ -80,7 +82,7 @@ export class ChatGPTExtractor implements ConversationExtractor {
     );
 
     const conversationTurnCount = document.querySelectorAll('[data-testid^="conversation-turn-"]').length;
-    const isPartial = observedNodes.length > 0 && messages.length < conversationTurnCount;
+    const isPartial = nodes.length > 0 && messages.length < conversationTurnCount;
     const confidence = this.calcConfidence(messages, isPartial);
 
     const conversationId = this.extractConversationId(url);
