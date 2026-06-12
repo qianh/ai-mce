@@ -156,7 +156,12 @@ Analysis Run 消化记录。
 - 实现期偏差（已修正并记录）：①复用既有 app/db.py 的 create_sessionmaker（计划盲点）；
   ②append_only 上下文 buffer 改按消息数取（按旧 segment 起点在单段会话下退化为全量重消化）；
   ③test_cloud_tables_are_declared 改子集断言以容纳分析层新表
-- Part 2（Dream Cycle + Profile API + 回填）、Part 3（MCP + 端到端验收）待做
+**Part 2（Dream Cycle + Profile API + 回填）✅ 2026-06-12**：5 个 TDD 任务，
+测试 88 passed（累计新增 61）。新增 confidence/dream/brief/scheduler 模块 +
+routes/profile.py（6 端点）+ apscheduler 接入 lifespan。
+- 实现期偏差：claim 处置分类按事件语义（获得/失去/反证证据）而非置信度差值——
+  存量置信度与重算公式不同源，差值比较不稳定
+- Part 3（MCP server + 端到端验收）待做；6.2 LLM 试跑待真实环境
 
 ## 验证记录（DoD）         <!-- N6 -->
 - [ ] 所有测试通过  [ ] lint  [ ] typecheck  [ ] build

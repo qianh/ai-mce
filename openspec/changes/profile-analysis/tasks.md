@@ -22,22 +22,22 @@
 
 ## 4. Dream Cycle
 
-- [ ] 4.1 reconcile 引擎：pending atoms → embedding 召回候选 claim → LLM 对账 → 五种处置 + 置信度重算（时间衰减、校准锁定/不复活）
-- [ ] 4.2 Profile Snapshot：版本化全量状态 + changes 变化说明（不可变）
-- [ ] 4.3 User Brief 编译器：7 维度高置信 claim → ≤2KB 中文 markdown（维度⑦派生生成）+ source_claim_ids
-- [ ] 4.4 APScheduler 接入：每日 cron（env 可调）触发 dream run，记录 stats
+- [x] 4.1 reconcile 引擎：pending atoms → embedding 召回候选 claim → LLM 对账 → 五种处置 + 置信度重算（时间衰减、校准锁定/不复活）
+- [x] 4.2 Profile Snapshot：版本化全量状态 + changes 变化说明（不可变）
+- [x] 4.3 User Brief 编译器：7 维度高置信 claim → ≤2KB 中文 markdown（维度⑦派生生成）+ source_claim_ids
+- [x] 4.4 APScheduler 接入：每日 cron（env 可调）触发 dream run，记录 stats
 
 ## 5. Profile API
 
-- [ ] 5.1 GET /v1/profile/brief（读最新版）
-- [ ] 5.2 GET /v1/profile/claims（dimension/project 过滤 + q 语义检索；默认排除 deprecated/user_rejected）
-- [ ] 5.3 GET /v1/profile/claims/{id}/evidence（证据链回溯到会话标题+消息区间+引文）
-- [ ] 5.4 POST /v1/profile/calibrations（confirm/reject/correct 立即生效 + 不可变记录）
-- [ ] 5.5 GET /v1/profile/dreams/latest + POST /v1/profile/backfill?days=
+- [x] 5.1 GET /v1/profile/brief（读最新版）
+- [x] 5.2 GET /v1/profile/claims（dimension/project 过滤 + q 语义检索；默认排除 deprecated/user_rejected）
+- [x] 5.3 GET /v1/profile/claims/{id}/evidence（证据链回溯到会话标题+消息区间+引文）
+- [x] 5.4 POST /v1/profile/calibrations（confirm/reject/correct 立即生效 + 不可变记录）
+- [x] 5.5 GET /v1/profile/dreams/latest + POST /v1/profile/backfill?days=
 
 ## 6. 历史回填
 
-- [ ] 6.1 回填任务：近 N 天倒序入低优先级队列、限速、与实时 Digest 共存
+- [x] 6.1 回填任务：近 N 天倒序入低优先级队列、限速、与实时 Digest 共存
 - [ ] 6.2 试跑 10 条样本估算单条 token 成本，确认预算后再放量（design Open Question）
 
 ## 7. MCP Server（mcp-server/ 新目录）
