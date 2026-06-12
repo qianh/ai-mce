@@ -197,4 +197,9 @@ def run_dream_cycle(session: Session, user_id: UUID, llm, embedder, *,
     run.stats = {"pending_atoms": len(pending), "changes": changes,
                  "skipped_rejected_equivalents": skipped_rejected}
     session.commit()
+
+    from app.profile.brief import compile_brief, create_snapshot
+
+    create_snapshot(session, user_id, run, changes)
+    compile_brief(session, user_id)
     return run
