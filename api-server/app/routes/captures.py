@@ -33,6 +33,7 @@ def _capture_item(row: dict) -> CaptureListItem:
         source_title=row["source_title"],
         content_hash=row["content_hash"],
         source_fingerprint=row["source_fingerprint"],
+        session_id=row.get("session_id") or "",
         extraction_quality=row["extraction_quality"],
         metadata=row.get("metadata", {}),
         analysis_status=row["analysis_status"],

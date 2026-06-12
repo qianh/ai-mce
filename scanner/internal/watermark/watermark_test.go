@@ -141,6 +141,52 @@ func TestRemovePending(t *testing.T) {
 	}
 }
 
+func TestSavePendingDedupesByFilePath(t *testing.T) {
+	db := tempDB(t)
+
+	_ = db.SavePending("/path/session.jsonl", `{"v":1}`, "error one")
+	_ = db.SavePending("/path/session.jsonl", `{"v":2}`, "error two")
+	_ = db.SavePending("/path/session.jsonl", `{"v":3}`, "error three")
+
+	pending, err := db.GetPendingUploads()
+	if err != nil {
+		t.Fatalf("GetPendingUploads: %v", err)
+	}
+	if len(pending) != 1 {
+		t.Fatalf("same file_path must keep one pending row, got %d", len(pending))
+	}
+	if pending[0].Payload != `{"v":3}` {
+		t.Errorf("pending row should hold the latest payload, got %s", pending[0].Payload)
+	}
+	if pending[0].LastError != "error three" {
+		t.Errorf("pending row should hold the latest error, got %s", pending[0].LastError)
+	}
+}
+
+func TestMarkUploadedClearsPending(t *testing.T) {
+	db := tempDB(t)
+
+	_ = db.SavePending("/path/a.jsonl", `{}`, "err")
+	_ = db.SavePending("/path/b.jsonl", `{}`, "err")
+
+	if err := db.MarkUploaded("/path/a.jsonl", "hash-a", "claude", "sess-a"); err != nil {
+		t.Fatalf("MarkUploaded: %v", err)
+	}
+
+	pending, _ := db.GetPendingUploads()
+	if len(pending) != 1 {
+		t.Fatalf("expected 1 remaining, got %d", len(pending))
+	}
+	if pending[0].FilePath != "/path/b.jsonl" {
+		t.Errorf("wrong row cleared: %s", pending[0].FilePath)
+	}
+
+	// Marking a path with no pending rows is a no-op, not an error.
+	if err := db.MarkUploaded("/path/none.jsonl", "hash-n", "claude", ""); err != nil {
+		t.Errorf("MarkUploaded with no pending row: %v", err)
+	}
+}
+
 func TestMarkUploadedConcurrent(t *testing.T) {
 	db := tempDB(t)
 

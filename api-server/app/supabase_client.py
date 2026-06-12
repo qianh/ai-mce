@@ -122,7 +122,7 @@ class SupabaseRestClient:
             "GET",
             "/rest/v1/captures",
             params={
-                "select": "id,message_count",
+                "select": "id,message_count,session_id",
                 "user_id": f"eq.{user_id}",
                 field: f"eq.{value}",
                 "limit": "1",
@@ -140,17 +140,58 @@ class SupabaseRestClient:
         )
         return rows[0], False
 
+    def _find_capture_by_session(self, user_id: str, platform: str, session_id: str) -> dict[str, Any] | None:
+        if not session_id:
+            return None
+        rows = self._request(
+            "GET",
+            "/rest/v1/captures",
+            params={
+                "select": "id,message_count",
+                "user_id": f"eq.{user_id}",
+                "source_platform": f"eq.{platform}",
+                "session_id": f"eq.{session_id}",
+                "limit": "1",
+            },
+        )
+        return rows[0] if rows else None
+
+    def _replace_capture_by_session(
+        self, user_id: str, values: dict[str, Any], session_id: str
+    ) -> tuple[dict[str, Any], bool] | None:
+        existing = self._find_capture_by_session(user_id, values["source_platform"], session_id)
+        if existing is None:
+            return None
+        return self._update_capture(existing["id"], values)
+
     def create_or_update_capture(self, user_id: str, req: CaptureCreateRequest) -> tuple[dict[str, Any], bool]:
         values = capture_values(req)
         values["user_id"] = user_id
+        session_id = values.get("session_id") or ""
 
-        # 1. Exact same content → update in place
+        # 1. Session-level match (desktop): same session re-uploaded with new content
+        #    → replace in full; the local session file is the source of truth.
+        if session_id:
+            replaced = self._replace_capture_by_session(user_id, values, session_id)
+            if replaced is not None:
+                return replaced
+
+        # 2. Exact same content → update in place (idempotent replay).
+        #    If the hit belongs to a DIFFERENT session (identical content in a copied
+        #    session file), keep its session_id: overwriting would hijack that session
+        #    and can violate the (user, platform, session_id) unique index.
         existing = self._find_capture_by(user_id, "content_hash", values["content_hash"])
         if existing is not None:
-            return self._update_capture(existing["id"], values)
+            update_values = values
+            existing_session = existing.get("session_id") or ""
+            if session_id and existing_session and existing_session != session_id:
+                update_values = {k: v for k, v in values.items() if k != "session_id"}
+            return self._update_capture(existing["id"], update_values)
 
-        # 2. Same conversation, new content → update existing record
-        if values.get("source_fingerprint"):
+        # 3. Same conversation, new content → update existing record.
+        #    Skipped when session_id is present: desktop fingerprints are platform-level
+        #    ("claude:desktop"), matching them would merge unrelated sessions.
+        if not session_id and values.get("source_fingerprint"):
             existing = self._find_capture_by(user_id, "source_fingerprint", values["source_fingerprint"])
             if existing is not None:
                 if values["message_count"] >= (existing.get("message_count") or 0):
@@ -160,7 +201,7 @@ class SupabaseRestClient:
                 safe_values = {k: v for k, v in values.items() if k not in ("messages", "message_count")}
                 return self._update_capture(existing["id"], safe_values)
 
-        # 3. Brand new capture → insert
+        # 4. Brand new capture → insert
         insert_values = {"id": str(uuid4()), **values}
         try:
             rows = self._request(
@@ -172,8 +213,12 @@ class SupabaseRestClient:
             return rows[0], True
         except SupabaseApiError as exc:
             if exc.status_code == 409:
-                # Race: another request inserted between our checks. Retry by fingerprint.
-                if values.get("source_fingerprint"):
+                # Race: another request inserted between our checks. Retry lookups.
+                if session_id:
+                    replaced = self._replace_capture_by_session(user_id, values, session_id)
+                    if replaced is not None:
+                        return replaced
+                elif values.get("source_fingerprint"):
                     existing = self._find_capture_by(user_id, "source_fingerprint", values["source_fingerprint"])
                     if existing is not None:
                         return self._update_capture(existing["id"], values)
@@ -191,7 +236,7 @@ class SupabaseRestClient:
         offset: int = 0,
     ) -> list[dict[str, Any]]:
         params: dict[str, str] = {
-            "select": "id,source_platform,source_url,source_title,content_hash,source_fingerprint,extraction_quality,analysis_status,message_count,created_at,updated_at",
+            "select": "id,source_platform,source_url,source_title,content_hash,source_fingerprint,session_id,extraction_quality,analysis_status,message_count,created_at,updated_at",
             "user_id": f"eq.{user_id}",
             "order": "created_at.desc",
             "limit": str(limit),
@@ -267,6 +312,7 @@ def capture_values(req: CaptureCreateRequest) -> dict[str, Any]:
     hashes = req.hashes
     messages = list(content.get("messages") or [])
     return {
+        "session_id": req.session_id or "",
         "source_platform": source["platform"],
         "source_url": source["url"],
         "source_title": content.get("title") or source.get("browser_title") or "",

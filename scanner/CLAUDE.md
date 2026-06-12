@@ -19,6 +19,7 @@ pkg/model/           — Shared data models (ExtractedConversation, etc.)
 ```sh
 go build -o mce-scanner ./cmd/mce-scanner
 ./mce-scanner          # one-shot scan
+./mce-scanner daemon   # continuous scan (immediate first scan, then every MCE_SCAN_INTERVAL seconds, default 3600)
 ./mce-scanner login    # authenticate with API Server
 ./mce-scanner status   # show scan status
 ```
@@ -30,7 +31,8 @@ go build -o mce-scanner ./cmd/mce-scanner
 - **Completed Sessions only** — 10 min no-modification threshold
 - **Watermark DB** — `~/.mce-scanner/state.db`, tracks `{file_path, content_hash, last_uploaded_at}`
 - **Independent auth** — own email/password login, same user account as browser extension
-- **Retry 3x then persist** — failed uploads saved locally for later retry
+- **Retry 3x then persist** — failed uploads saved locally; in daemon mode the next tick naturally retries (failed sessions never get watermarked)
+- **Daemon incremental scan** — `daemon` subcommand rescans periodically; sessions whose content_hash changed are re-uploaded in full and the cloud replaces the old version via `(user_id, source_platform, session_id)` matching
 - **source_url = "desktop"** for all desktop Captures
 - **platform** values: `claude`, `codex`, `grok`, `opencode`
 

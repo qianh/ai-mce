@@ -177,6 +177,238 @@ def test_create_capture_updates_by_source_fingerprint_when_content_changes():
     assert [call.method for call in calls] == ["GET", "GET", "PATCH"]
 
 
+def test_create_capture_replaces_by_session_id():
+    """Desktop re-upload of the same session (new content): session_id matches → full replace PATCH."""
+    calls = []
+    existing_row = {
+        "id": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+        "user_id": "11111111-1111-1111-1111-111111111111",
+        "source_platform": "claude",
+        "source_url": "desktop",
+        "source_title": "Session A",
+        "content_hash": "old-hash",
+        "source_fingerprint": "claude:desktop",
+        "session_id": "sess-001",
+        "extraction_quality": {"confidence": 1.0},
+        "messages": [{"role": "user", "content": "old", "index": 0}],
+        "metadata": {},
+        "analysis_status": "not_started",
+        "message_count": 5,
+        "created_at": "2026-06-12T10:00:00Z",
+        "updated_at": "2026-06-12T10:00:00Z",
+    }
+    updated_row = {**existing_row, "content_hash": "new-hash", "message_count": 8, "updated_at": "2026-06-12T11:00:00Z"}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        if request.method == "GET":
+            # session_id lookup must be scoped by platform
+            if request.url.params.get("session_id") == "eq.sess-001":
+                assert request.url.params.get("source_platform") == "eq.claude"
+                return httpx.Response(200, json=[existing_row])
+            return httpx.Response(200, json=[])
+        if request.method == "PATCH":
+            body = json.loads(request.content)
+            # full replace: messages and message_count are overwritten
+            assert "messages" in body
+            assert body["message_count"] == 8
+            assert body["session_id"] == "sess-001"
+            return httpx.Response(200, json=[updated_row])
+        return httpx.Response(500)
+
+    client = SupabaseRestClient(
+        "https://example.supabase.co",
+        "service-key",
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    result, is_created = client.create_or_update_capture(
+        "11111111-1111-1111-1111-111111111111",
+        CaptureCreateRequest(
+            session_id="sess-001",
+            source={
+                "platform": "claude",
+                "url": "desktop",
+                "browser_title": "Session A",
+                "captured_at": "2026-06-12T11:00:00.000Z",
+            },
+            content={
+                "title": "Session A",
+                "messages": [{"role": "user", "content": f"msg {i}", "index": i} for i in range(8)],
+            },
+            extraction_quality={"confidence": 1.0},
+            hashes={
+                "content_hash": "new-hash",
+                "message_hashes": [],
+                "source_fingerprint": "claude:desktop",
+            },
+        ),
+    )
+
+    assert is_created is False
+    assert result["content_hash"] == "new-hash"
+    assert result["message_count"] == 8
+    # session_id lookup hits → PATCH directly, no content_hash / fingerprint lookups
+    assert [call.method for call in calls] == ["GET", "PATCH"]
+
+
+def test_create_capture_replaces_by_session_id_even_with_fewer_messages():
+    """Desktop session truncated/rewritten: replace takes the file as-is, no message_count >= guard."""
+    calls = []
+    existing_row = {
+        "id": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+        "user_id": "11111111-1111-1111-1111-111111111111",
+        "source_platform": "claude",
+        "session_id": "sess-001",
+        "message_count": 20,
+        "content_hash": "old-hash",
+    }
+    updated_row = {**existing_row, "content_hash": "small-hash", "message_count": 4, "updated_at": "2026-06-12T12:00:00Z"}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        if request.method == "GET":
+            if request.url.params.get("session_id") == "eq.sess-001":
+                return httpx.Response(200, json=[existing_row])
+            return httpx.Response(200, json=[])
+        if request.method == "PATCH":
+            body = json.loads(request.content)
+            assert "messages" in body, "session_id replace must overwrite messages even when fewer"
+            assert body["message_count"] == 4
+            return httpx.Response(200, json=[updated_row])
+        return httpx.Response(500)
+
+    client = SupabaseRestClient(
+        "https://example.supabase.co",
+        "service-key",
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    result, is_created = client.create_or_update_capture(
+        "11111111-1111-1111-1111-111111111111",
+        CaptureCreateRequest(
+            session_id="sess-001",
+            source={"platform": "claude", "url": "desktop", "browser_title": "Session A", "captured_at": "2026-06-12T12:00:00.000Z"},
+            content={"title": "Session A", "messages": [{"role": "user", "content": f"m{i}", "index": i} for i in range(4)]},
+            extraction_quality={"confidence": 1.0},
+            hashes={"content_hash": "small-hash", "message_hashes": [], "source_fingerprint": "claude:desktop"},
+        ),
+    )
+
+    assert is_created is False
+    assert result["message_count"] == 4
+
+
+def test_create_capture_with_session_id_skips_fingerprint_match():
+    """Two different desktop sessions share fingerprint 'claude:desktop' — must NOT merge."""
+    calls = []
+    other_session_row = {
+        "id": "cccccccc-cccc-cccc-cccc-cccccccccccc",
+        "user_id": "11111111-1111-1111-1111-111111111111",
+        "source_platform": "claude",
+        "session_id": "sess-OTHER",
+        "source_fingerprint": "claude:desktop",
+        "content_hash": "other-hash",
+        "message_count": 10,
+    }
+    new_row = {
+        "id": "dddddddd-dddd-dddd-dddd-dddddddddddd",
+        "user_id": "11111111-1111-1111-1111-111111111111",
+        "source_platform": "claude",
+        "session_id": "sess-002",
+        "source_fingerprint": "claude:desktop",
+        "content_hash": "hash-002",
+        "message_count": 6,
+        "created_at": "2026-06-12T11:00:00Z",
+        "updated_at": "2026-06-12T11:00:00Z",
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        if request.method == "GET":
+            if request.url.params.get("session_id") == "eq.sess-002":
+                return httpx.Response(200, json=[])
+            if request.url.params.get("content_hash") == "eq.hash-002":
+                return httpx.Response(200, json=[])
+            if request.url.params.get("source_fingerprint"):
+                raise AssertionError("fingerprint lookup must be skipped when session_id is present")
+            return httpx.Response(200, json=[])
+        if request.method == "POST":
+            body = json.loads(request.content)
+            assert body["session_id"] == "sess-002"
+            return httpx.Response(201, json=[new_row])
+        return httpx.Response(500)
+
+    client = SupabaseRestClient(
+        "https://example.supabase.co",
+        "service-key",
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    result, is_created = client.create_or_update_capture(
+        "11111111-1111-1111-1111-111111111111",
+        CaptureCreateRequest(
+            session_id="sess-002",
+            source={"platform": "claude", "url": "desktop", "browser_title": "Session B", "captured_at": "2026-06-12T11:00:00.000Z"},
+            content={"title": "Session B", "messages": [{"role": "user", "content": f"m{i}", "index": i} for i in range(6)]},
+            extraction_quality={"confidence": 1.0},
+            hashes={"content_hash": "hash-002", "message_hashes": [], "source_fingerprint": "claude:desktop"},
+        ),
+    )
+
+    assert is_created is True
+    assert result["id"] == "dddddddd-dddd-dddd-dddd-dddddddddddd"
+    # GET(session_id) → GET(content_hash) → POST; no fingerprint GET
+    assert [call.method for call in calls] == ["GET", "GET", "POST"]
+
+
+def test_create_capture_content_hash_match_does_not_steal_other_sessions_id():
+    """Two distinct sessions with identical content (copied file): content_hash hit on the
+    OTHER session must not overwrite its session_id, else the unique index breaks / the
+    other session gets hijacked."""
+    calls = []
+    other_session_row = {
+        "id": "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee",
+        "message_count": 2,
+        "session_id": "sess-ORIGINAL",
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        if request.method == "GET":
+            if request.url.params.get("session_id") == "eq.sess-COPY":
+                return httpx.Response(200, json=[])
+            if request.url.params.get("content_hash") == "eq.same-hash":
+                return httpx.Response(200, json=[other_session_row])
+            return httpx.Response(200, json=[])
+        if request.method == "PATCH":
+            body = json.loads(request.content)
+            assert body.get("session_id") != "sess-COPY", (
+                "content_hash match on a different session must not overwrite its session_id"
+            )
+            return httpx.Response(200, json=[{**other_session_row, "updated_at": "2026-06-12T12:00:00Z"}])
+        return httpx.Response(500)
+
+    client = SupabaseRestClient(
+        "https://example.supabase.co",
+        "service-key",
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    _, is_created = client.create_or_update_capture(
+        "11111111-1111-1111-1111-111111111111",
+        CaptureCreateRequest(
+            session_id="sess-COPY",
+            source={"platform": "claude", "url": "desktop", "browser_title": "Copy", "captured_at": "2026-06-12T12:00:00.000Z"},
+            content={"title": "Copy", "messages": [{"role": "user", "content": "same", "index": 0}, {"role": "assistant", "content": "same", "index": 1}]},
+            extraction_quality={"confidence": 1.0},
+            hashes={"content_hash": "same-hash", "message_hashes": [], "source_fingerprint": "claude:desktop"},
+        ),
+    )
+
+    assert is_created is False
+
+
 def test_create_capture_preserves_messages_when_partial_recapture():
     """
     Re-capturing the same conversation with FEWER messages (lazy-loaded page) must not

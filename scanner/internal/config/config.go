@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"time"
 )
 
 type Config struct {
@@ -17,6 +18,7 @@ type Config struct {
 	MaxRetries             int
 	Concurrency            int
 	MinMessages            int
+	ScanInterval           time.Duration
 }
 
 type ToolPath struct {
@@ -48,6 +50,7 @@ func Default() Config {
 		MaxRetries:             3,
 		Concurrency:            8,
 		MinMessages:            4,
+		ScanInterval:           time.Hour,
 	}
 }
 
@@ -72,6 +75,13 @@ func FromEnv() Config {
 			cfg.MinMessages = n
 		} else {
 			log.Printf("warning: invalid MCE_MIN_MESSAGES %q, using default %d", v, cfg.MinMessages)
+		}
+	}
+	if v := os.Getenv("MCE_SCAN_INTERVAL"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			cfg.ScanInterval = time.Duration(n) * time.Second
+		} else {
+			log.Printf("warning: invalid MCE_SCAN_INTERVAL %q, using default %v", v, cfg.ScanInterval)
 		}
 	}
 

@@ -62,6 +62,10 @@ func Open(dbPath string) (*DB, error) {
 			created_at   TEXT NOT NULL,
 			last_error   TEXT
 		);
+		DELETE FROM pending_uploads WHERE id NOT IN (
+			SELECT MAX(id) FROM pending_uploads GROUP BY file_path
+		);
+		CREATE UNIQUE INDEX IF NOT EXISTS uq_pending_file_path ON pending_uploads(file_path);
 	`); err != nil {
 		db.Close()
 		return nil, err
@@ -103,6 +107,11 @@ func (d *DB) MarkUploaded(filePath, contentHash, platform, sessionID string) err
 			uploaded_at = excluded.uploaded_at,
 			status = 'uploaded'
 	`, filePath, contentHash, platform, sessionID, time.Now().UTC().Format(time.RFC3339))
+	if err != nil {
+		return err
+	}
+	// A watermarked session needs no retry: drop any stale pending row.
+	_, err = d.db.Exec(`DELETE FROM pending_uploads WHERE file_path = ?`, filePath)
 	return err
 }
 
@@ -110,9 +119,14 @@ func (d *DB) SavePending(filePath, payload, lastError string) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
+	// One pending row per file: repeated failures keep only the latest payload/error.
 	_, err := d.db.Exec(`
 		INSERT INTO pending_uploads (file_path, payload, retry_count, created_at, last_error)
 		VALUES (?, ?, 3, ?, ?)
+		ON CONFLICT(file_path) DO UPDATE SET
+			payload = excluded.payload,
+			created_at = excluded.created_at,
+			last_error = excluded.last_error
 	`, filePath, payload, time.Now().UTC().Format(time.RFC3339), lastError)
 	return err
 }

@@ -31,6 +31,7 @@ class CaptureListItem(BaseModel):
     source_title: str
     content_hash: str
     source_fingerprint: str
+    session_id: str = ""
     extraction_quality: dict
     metadata: dict
     analysis_status: str
@@ -40,6 +41,7 @@ class CaptureListItem(BaseModel):
 
 
 class CaptureCreateRequest(BaseModel):
+    session_id: str = ""
     source: dict
     content: dict
     extraction_quality: dict

@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestDefaultConfig(t *testing.T) {
@@ -130,6 +131,32 @@ func TestConcurrencyInvalidEnv(t *testing.T) {
 	cfg := FromEnv()
 	if cfg.Concurrency != 8 {
 		t.Errorf("invalid MCE_CONCURRENCY should fall back to default 8, got %d", cfg.Concurrency)
+	}
+}
+
+func TestScanIntervalDefault(t *testing.T) {
+	t.Setenv("MCE_SCAN_INTERVAL", "")
+	cfg := FromEnv()
+	if cfg.ScanInterval != 3600*time.Second {
+		t.Errorf("ScanInterval default: got %v, want 1h", cfg.ScanInterval)
+	}
+}
+
+func TestScanIntervalFromEnv(t *testing.T) {
+	t.Setenv("MCE_SCAN_INTERVAL", "300")
+	cfg := FromEnv()
+	if cfg.ScanInterval != 300*time.Second {
+		t.Errorf("ScanInterval from env: got %v, want 5m", cfg.ScanInterval)
+	}
+}
+
+func TestScanIntervalInvalidEnv(t *testing.T) {
+	for _, bad := range []string{"abc", "0", "-5"} {
+		t.Setenv("MCE_SCAN_INTERVAL", bad)
+		cfg := FromEnv()
+		if cfg.ScanInterval != 3600*time.Second {
+			t.Errorf("MCE_SCAN_INTERVAL=%q should fall back to 1h, got %v", bad, cfg.ScanInterval)
+		}
 	}
 }
 

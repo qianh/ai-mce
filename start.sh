@@ -20,9 +20,9 @@ if [ ! -d "console/node_modules" ]; then
   (cd console && bun install)
 fi
 
-# 后台执行一次扫描（拾取已有会话）
-echo "🔍 启动 mce-scanner 扫描..."
-"$SCANNER" &
+# 后台启动持续扫描守护进程（启动即扫一次，之后按 MCE_SCAN_INTERVAL 周期增量扫描，默认 1 小时）
+echo "🔍 启动 mce-scanner daemon..."
+"$SCANNER" daemon &
 
 # 若端口被占用，先终止旧进程
 if lsof -ti:3001 &>/dev/null; then

@@ -7,3 +7,4 @@ api-server/.env
 api-server/*.db
 api-server/.venv/
 extension/.output/
+/mce-scanner

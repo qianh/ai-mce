@@ -2,6 +2,7 @@ package scanner
 
 import (
 	"bufio"
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -136,6 +137,35 @@ func (s *Scanner) RunOnce() error {
 	return nil
 }
 
+// RunLoop runs an immediate scan, then rescans every cfg.ScanInterval until
+// ctx is cancelled. Tick overlap is prevented by the flock scan lock inside
+// RunOnce (a tick that can't acquire the lock is skipped, not queued).
+func (s *Scanner) RunLoop(ctx context.Context) error {
+	interval := s.cfg.ScanInterval
+	if interval <= 0 {
+		interval = time.Hour
+	}
+
+	if err := s.RunOnce(); err != nil {
+		log.Printf("scan error: %v", err)
+	}
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			log.Printf("daemon stopping: %v", ctx.Err())
+			return nil
+		case <-ticker.C:
+			if err := s.RunOnce(); err != nil {
+				log.Printf("scan error: %v", err)
+			}
+		}
+	}
+}
+
 func (s *Scanner) discoverAll() []discoveredSession {
 	var all []discoveredSession
 	threshold := s.cfg.CompletionThresholdMin
@@ -191,7 +221,6 @@ func (s *Scanner) processSession(sess discoveredSession) error {
 		s.db.SavePending(sess.FilePath, payload, err.Error())
 		return fmt.Errorf("upload: %w", err)
 	}
-
 	sessionID := ""
 	if conv.Metadata != nil {
 		if id, ok := conv.Metadata["session_id"].(string); ok {

@@ -35,12 +35,12 @@ All extractors implement `ConversationExtractor` interface (`src/lib/schema.ts`)
 
 The scanner is the desktop-channel capture tool. Key data flow:
 
-1. **launchd** triggers the scanner via `WatchPaths` when AI CLI tool session directories change
+1. **Daemon mode** (`mce-scanner daemon`) scans immediately on start, then rescans every `MCE_SCAN_INTERVAL` seconds (default 3600) for new sessions and updated content; launchd `WatchPaths` can still trigger one-shot scans (`mce-scanner` with no args)
 2. **Per-tool Parsers** read each tool's session format (JSONL or SQLite) and convert to `ExtractedConversation`
 3. **Completion check** — only sessions with no file modification for 10+ minutes are processed
-4. **Watermark DB** (`~/.mce-scanner/state.db`) tracks processed sessions by file path + content hash
+4. **Watermark DB** (`~/.mce-scanner/state.db`) tracks processed sessions by file path + content hash; changed content_hash → full re-upload, cloud replaces the old version via `(user_id, source_platform, session_id)` matching
 5. **API Client** uploads to `POST /v1/captures` with independent authentication (same user account as extension)
-6. **Retry** — 3 attempts on failure, then payload persisted locally for later retry
+6. **Retry** — 3 attempts on failure; in daemon mode the next tick naturally retries failed sessions (they are never watermarked)
 
 Supported tools and their session storage:
 
