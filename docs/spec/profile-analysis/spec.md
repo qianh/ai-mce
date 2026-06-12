@@ -148,8 +148,15 @@ Analysis Run 消化记录。
 - Part 3（Plan 2 执行后编写）：MCP server + 端到端验收（AC-001~006）
 策略：执行一份再写下一份，避免计划与实现漂移。
 
-## 实现与测试记录          <!-- N5 -->
-（待定）
+## 实现与测试记录          <!-- N5 进行中 -->
+**Part 1（Digest 管线）✅ 2026-06-12**：worktree 分支 `worktree-profile-analysis`，14 个 TDD
+任务全部红-绿走完，14 个提交（e1532be..cbb46f5），测试 63 passed（基线 27 + 新增 36）。
+- 新增模块：app/profile/{models,redact,llm,cleaning,segmenter,distiller,diff,digest,queue}.py、
+  alembic 0005（升降级已验证）、main.py lifespan、captures 路由入库钩子
+- 实现期偏差（已修正并记录）：①复用既有 app/db.py 的 create_sessionmaker（计划盲点）；
+  ②append_only 上下文 buffer 改按消息数取（按旧 segment 起点在单段会话下退化为全量重消化）；
+  ③test_cloud_tables_are_declared 改子集断言以容纳分析层新表
+- Part 2（Dream Cycle + Profile API + 回填）、Part 3（MCP + 端到端验收）待做
 
 ## 验证记录（DoD）         <!-- N6 -->
 - [ ] 所有测试通过  [ ] lint  [ ] typecheck  [ ] build

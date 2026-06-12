@@ -1,24 +1,24 @@
 ## 1. 数据层与配置底座
 
-- [ ] 1.1 alembic 迁移 0005：启用 pgvector + 新建 9 张表（analysis_runs / task_segments / memory_atoms / profile_claims / claim_evidence / dream_runs / profile_snapshots / user_briefs / calibrations，索引与唯一约束按 design D9）
-- [ ] 1.2 config.py 新增 env：MCE_PROFILE_ENABLED、MCE_LLM_*、MCE_EMBEDDING_*（含 DIM）、MCE_DREAM_CRON、回填限速参数
-- [ ] 1.3 分析层直连 Postgres：async engine + repository 基类（仅分析层使用，现有 REST 路径不动）
+- [x] 1.1 alembic 迁移 0005：启用 pgvector + 新建 9 张表（analysis_runs / task_segments / memory_atoms / profile_claims / claim_evidence / dream_runs / profile_snapshots / user_briefs / calibrations，索引与唯一约束按 design D9）
+- [x] 1.2 config.py 新增 env：MCE_PROFILE_ENABLED、MCE_LLM_*、MCE_EMBEDDING_*（含 DIM）、MCE_DREAM_CRON、回填限速参数
+- [x] 1.3 分析层直连 Postgres：async engine + repository 基类（仅分析层使用，现有 REST 路径不动）
 
 ## 2. LLM / Embedding Client 与脱敏
 
-- [ ] 2.1 OpenAI 兼容 chat client（JSON schema 约束输出、校验失败重试、超时与限速）
-- [ ] 2.2 embedding client（批量接口、维度校验）
-- [ ] 2.3 出口脱敏器：API key / JWT / 私钥块 / password= 模式 → `[REDACTED:<type>]`（含单测覆盖误杀/漏杀样本）
+- [x] 2.1 OpenAI 兼容 chat client（JSON schema 约束输出、校验失败重试、超时与限速）
+- [x] 2.2 embedding client（批量接口、维度校验）
+- [x] 2.3 出口脱敏器：API key / JWT / 私钥块 / password= 模式 → `[REDACTED:<type>]`（含单测覆盖误杀/漏杀样本）
 
 ## 3. Digest 管线
 
-- [ ] 3.1 清洗器（纯规则）：剔除 tool 消息、超长截断、空消息过滤（spec: profile-digest/清洗规则）
-- [ ] 3.2 切分器：规则预切 + LLM 边界确认，产出 Task Segment（title/scenario/summary/value_score）
-- [ ] 3.3 Distiller：LLM 蒸馏 Memory Atom（类型/维度/置信度/证据区间），低价值段跳过，红线约束写入 prompt
-- [ ] 3.4 Analysis Run 幂等：唯一键 (capture_id, content_hash, pipeline_version)，重复触发跳过
-- [ ] 3.5 增量 diff：message_hashes 前缀比对 → append_only 只消化新增区间（含 buffer）/ modified 整条重消化 + supersede / noop
-- [ ] 3.6 asyncio 队列 + 后台消费 task（lifespan 启动）+ 启动对账补队
-- [ ] 3.7 capture 入库钩子：create_or_update_capture 成功后 fire-and-forget 入队（flag 关闭时回到 store-only；spec: cloud-mode-api-server delta）
+- [x] 3.1 清洗器（纯规则）：剔除 tool 消息、超长截断、空消息过滤（spec: profile-digest/清洗规则）
+- [x] 3.2 切分器：规则预切 + LLM 边界确认，产出 Task Segment（title/scenario/summary/value_score）
+- [x] 3.3 Distiller：LLM 蒸馏 Memory Atom（类型/维度/置信度/证据区间），低价值段跳过，红线约束写入 prompt
+- [x] 3.4 Analysis Run 幂等：唯一键 (capture_id, content_hash, pipeline_version)，重复触发跳过
+- [x] 3.5 增量 diff：message_hashes 前缀比对 → append_only 只消化新增区间（含 buffer）/ modified 整条重消化 + supersede / noop
+- [x] 3.6 asyncio 队列 + 后台消费 task（lifespan 启动）+ 启动对账补队
+- [x] 3.7 capture 入库钩子：create_or_update_capture 成功后 fire-and-forget 入队（flag 关闭时回到 store-only；spec: cloud-mode-api-server delta）
 
 ## 4. Dream Cycle
 
