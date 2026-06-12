@@ -3,6 +3,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.models import Base
+import app.profile.models  # noqa: F401  确保分析层表注册到 Base.metadata
 
 
 @pytest.fixture
