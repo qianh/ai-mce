@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.schemas import CaptureCreateRequest, CaptureCreateResponse, CaptureDetailResponse, CaptureListItem
@@ -51,6 +51,7 @@ def _capture_detail(row: dict) -> CaptureDetailResponse:
 @router.post("", response_model=CaptureCreateResponse)
 def create_capture(
     req: CaptureCreateRequest,
+    request: Request,
     response: Response,
     user_id: str = Depends(current_user_id),
     client: SupabaseRestClient = Depends(get_supabase_client),
@@ -62,7 +63,18 @@ def create_capture(
 
     response.status_code = status.HTTP_201_CREATED if created else status.HTTP_200_OK
     _touch_session(user_id, client)
+    enqueue_digest(request, str(row["id"]))
     return CaptureCreateResponse(id=row["id"], created=created, updated_at=row["updated_at"])
+
+
+def enqueue_digest(request: Request, capture_id: str) -> None:
+    """Fire-and-forget：分析入队失败绝不影响上传响应（spec: cloud-mode-api-server delta）。"""
+    try:
+        worker = getattr(request.app.state, "profile_worker", None)
+        if worker is not None:
+            worker.enqueue_nowait(capture_id)
+    except Exception:
+        pass
 
 
 @router.get("", response_model=list[CaptureListItem])
