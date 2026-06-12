@@ -5,6 +5,7 @@ description = "AI Memory Capture cloud API server"
 requires-python = ">=3.12"
 dependencies = [
   "alembic>=1.17.2",
+  "apscheduler>=3.10",
   "argon2-cffi>=25.1.0",
   "email-validator>=2.3.0",
   "fastapi>=0.124.0",

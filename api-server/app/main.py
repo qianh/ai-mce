@@ -16,24 +16,38 @@ def create_app(supabase_client: SupabaseRestClient | None = None,
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         worker = profile_worker
+        scheduler = None
         if worker is None and settings.profile_enabled:
+            import asyncio
+
+            from apscheduler.schedulers.asyncio import AsyncIOScheduler
+
             from app.db import create_sessionmaker
             from app.profile.llm import EmbeddingClient, LLMClient
             from app.profile.queue import ProfileWorker
+            from app.profile.scheduler import build_dream_trigger, run_dream_for_all
 
-            worker = ProfileWorker(
-                session_factory=create_sessionmaker(settings.database_url),
-                llm=LLMClient(settings.llm_base_url, settings.llm_api_key, settings.llm_model),
-                embedder=EmbeddingClient(settings.embedding_base_url,
-                                         settings.embedding_api_key or "",
-                                         settings.embedding_model, settings.embedding_dim),
-                value_threshold=settings.profile_value_threshold,
-            )
+            session_factory = create_sessionmaker(settings.database_url)
+            llm = LLMClient(settings.llm_base_url, settings.llm_api_key, settings.llm_model)
+            embedder = EmbeddingClient(settings.embedding_base_url,
+                                       settings.embedding_api_key or "",
+                                       settings.embedding_model, settings.embedding_dim)
+            worker = ProfileWorker(session_factory=session_factory, llm=llm, embedder=embedder,
+                                   value_threshold=settings.profile_value_threshold)
+
+            async def _dream_tick() -> None:
+                await asyncio.to_thread(run_dream_for_all, session_factory, llm, embedder)
+
+            scheduler = AsyncIOScheduler()
+            scheduler.add_job(_dream_tick, build_dream_trigger(settings.dream_cron))
+            scheduler.start()
         if worker is not None:
             await worker.start()
             await worker.reconcile()
         app.state.profile_worker = worker
         yield
+        if scheduler is not None:
+            scheduler.shutdown(wait=False)
         if worker is not None:
             await worker.stop()
 
