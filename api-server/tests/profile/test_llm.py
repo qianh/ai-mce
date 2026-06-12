@@ -48,3 +48,30 @@ def test_chat_json_raises_after_exhausted_retries():
 
     with pytest.raises(LLMError):
         _client(handler).chat_json("sys", "user", Echo, max_retries=2)
+
+
+def test_embed_batches_and_validates_dim():
+    from app.profile.llm import EmbeddingClient
+
+    def handler(request):
+        body = json.loads(request.content)
+        return httpx.Response(200, json={"data": [
+            {"index": i, "embedding": [0.5] * 4} for i in range(len(body["input"]))
+        ]})
+
+    client = EmbeddingClient(base_url="https://emb.test/v1", api_key="", model="bge-m3",
+                             dim=4, transport=httpx.MockTransport(handler))
+    out = client.embed(["a", "b"])
+    assert len(out) == 2 and all(len(v) == 4 for v in out)
+
+
+def test_embed_rejects_wrong_dim():
+    from app.profile.llm import EmbeddingClient
+
+    def handler(request):
+        return httpx.Response(200, json={"data": [{"index": 0, "embedding": [0.5] * 3}]})
+
+    client = EmbeddingClient(base_url="https://emb.test/v1", api_key="", model="bge-m3",
+                             dim=4, transport=httpx.MockTransport(handler))
+    with pytest.raises(LLMError):
+        client.embed(["a"])
