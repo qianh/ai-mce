@@ -80,6 +80,50 @@ _Avoid_: Local SQLite, OPFS database
 An AI CLI tool session whose files have not been modified for at least 10 minutes. Only Completed Sessions are eligible for Scanner collection. A session still being written to is ignored until it becomes a Completed Session.
 _Avoid_: Closed session, finished session
 
+**Digest（消化）**:
+The realtime profile-analysis stage that processes one Capture end to end: cleaning, splitting into Task Segments, and distilling Memory Atoms. Digest output waits in pending state until the next Dream Cycle. Digest is incremental: a re-uploaded Capture is diffed by message hashes, and append-only changes digest only the new message range.
+_Avoid_: Preprocessing, ETL
+
+**Dream Cycle（做梦）**:
+The daily batch stage that reconciles pending Memory Atoms against existing Profile Claims and produces a new Profile Snapshot and User Brief. Each affected claim gets exactly one of five outcomes: unchanged, strengthened, weakened, contradicted, deprecated.
+_Avoid_: Sync job, merge task
+
+**Task Segment（任务段）**:
+A contiguous message range within one Capture that pursues a single task goal. The basic unit of analysis; one Capture may contain several Task Segments.
+_Avoid_: Chapter, fragment
+
+**Memory Atom（记忆原子）**:
+The smallest evidence-backed fact distilled from a Task Segment, typed as fact, preference, skill signal, project context, or behavior pattern. Carries a confidence score and Evidence pointing to its source messages.
+_Avoid_: Memory, note
+
+**Distiller（蒸馏）**:
+The pipeline component that uses an LLM to distill Memory Atoms from a Task Segment.
+_Avoid_: Extractor (reserved for browser-channel content scripts)
+
+**Profile Claim（画像断言）**:
+A user-level conclusion aggregated from Memory Atoms, owned by exactly one of the seven profile dimensions. Carries confidence, a status machine, and an Evidence chain. Claims describe observable behavior patterns only — never psychological, personality, or ability judgments.
+_Avoid_: Tag, profile item
+
+**Evidence（证据）**:
+The traceable link from a Memory Atom or Profile Claim back to its source: a Capture plus message range. Has active/superseded status; superseded Evidence weakens or deprecates the claims it supports during the next Dream Cycle.
+_Avoid_: Reference, source
+
+**Profile Snapshot（画像快照）**:
+The versioned archive of the full profile state produced at the end of each Dream Cycle, with an explanation of what changed and why.
+_Avoid_: Backup
+
+**User Brief（用户简报）**:
+The compact profile summary compiled from high-confidence Profile Claims for AI CLI consumption via MCP. Rebuilt after every Dream Cycle.
+_Avoid_: Profile report
+
+**Calibration（校准）**:
+A user action through the MCP tools that confirms, rejects, or corrects a Profile Claim. Confirmed claims are pinned at high confidence; rejected claims are permanently deprecated and never revived by later Dream Cycles.
+_Avoid_: Feedback, rating
+
+**Analysis Run（消化记录）**:
+The execution record of one Digest, keyed by an idempotency key (capture id + content hash + pipeline version) and storing the message-hash watermark used for incremental diffing. Prevents duplicate digestion.
+_Avoid_: Log
+
 ## Example Dialogue
 
 Dev: "If a user switches to cloud mode, do we upload their old Captures?"
