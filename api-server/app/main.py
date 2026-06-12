@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import get_settings
 from app.routes.auth import router as auth_router
 from app.routes.captures import router as captures_router
+from app.routes.profile import router as profile_router
 from app.supabase_client import SupabaseRestClient, get_supabase_client
 
 
@@ -65,6 +66,7 @@ def create_app(supabase_client: SupabaseRestClient | None = None,
 
     app.include_router(auth_router)
     app.include_router(captures_router)
+    app.include_router(profile_router)
 
     @app.get("/health")
     def health() -> dict[str, bool]:

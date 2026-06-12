@@ -21,6 +21,10 @@ class ProfileWorker:
         self._queue: asyncio.Queue[UUID] = asyncio.Queue()
         self._task: asyncio.Task | None = None
 
+    @property
+    def embedder(self):
+        return self._embedder
+
     async def start(self) -> None:
         self._task = asyncio.create_task(self._consume())
 
