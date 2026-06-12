@@ -55,6 +55,8 @@ export default function CaptureList() {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState('');
+  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cancelRef = useRef<{ cancelled: boolean } | null>(null);
   const detailRequestRef = useRef(0);
   const navigate = useNavigate();
@@ -108,6 +110,7 @@ export default function CaptureList() {
     setDetailError('');
     setConfirmDelete(false);
     setDeleteError('');
+    resetCopyState();
     getCapture(id)
       .then(nextDetail => {
         if (!isCurrentDetailRequest(detailRequestRef.current, requestId)) return;
@@ -137,6 +140,32 @@ export default function CaptureList() {
     setDetailLoading(false);
     setConfirmDelete(false);
     setDeleteError('');
+    resetCopyState();
+  }
+
+  function resetCopyState() {
+    if (copyTimerRef.current) {
+      clearTimeout(copyTimerRef.current);
+      copyTimerRef.current = null;
+    }
+    setCopyState('idle');
+  }
+
+  function handleCopy() {
+    if (!detail) return;
+    const text = (detail.messages as Message[])
+      .map(msg => {
+        const roleLabel = msg.role === 'user' ? '用户' : msg.role === 'tool' ? 'Tool' : 'AI';
+        return `${roleLabel}：\n${msg.content}`;
+      })
+      .join('\n\n');
+    navigator.clipboard.writeText(text)
+      .then(() => setCopyState('copied'))
+      .catch(() => setCopyState('failed'))
+      .then(() => {
+        if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+        copyTimerRef.current = setTimeout(() => setCopyState('idle'), 2000);
+      });
   }
 
   async function handleDelete() {
@@ -311,6 +340,9 @@ export default function CaptureList() {
                         </div>
                       </div>
                       <div className="cap-modal-actions">
+                        <button className="cap-modal-btn" onClick={handleCopy}>
+                          {copyState === 'copied' ? '已复制' : copyState === 'failed' ? '复制失败' : '复制'}
+                        </button>
                         {!confirmDelete ? (
                           <button className="cap-modal-btn cap-modal-btn-danger" onClick={() => setConfirmDelete(true)}>删除</button>
                         ) : (
