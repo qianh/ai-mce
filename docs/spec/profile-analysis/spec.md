@@ -161,7 +161,10 @@ Analysis Run 消化记录。
 routes/profile.py（6 端点）+ apscheduler 接入 lifespan。
 - 实现期偏差：claim 处置分类按事件语义（获得/失去/反证证据）而非置信度差值——
   存量置信度与重算公式不同源，差值比较不稳定
-- Part 3（MCP server + 端到端验收）待做；6.2 LLM 试跑待真实环境
+**Part 3（MCP server）✅ 2026-06-13**：mcp-server/ 独立 uv 项目，9 个测试通过。
+ApiClient（独立认证 + 401 自动 refresh + 回落重登录）、6 个 MCP 工具、紧凑中文格式化
+（证据引文限长 200）、README 含 Claude Code/Codex 注册与服务器部署 checklist。
+- 待部署后执行：7.3 真实 CLI 实测、组 8 验收（AC-001~006）、6.2 LLM 试跑定型
 
 ## 验证记录（DoD）         <!-- N6 -->
 - [ ] 所有测试通过  [ ] lint  [ ] typecheck  [ ] build

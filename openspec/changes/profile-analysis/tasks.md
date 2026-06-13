@@ -42,8 +42,8 @@
 
 ## 7. MCP Server（mcp-server/ 新目录）
 
-- [ ] 7.1 项目骨架：Python MCP SDK（stdio）+ api-server 认证（login + refresh token 持久化 ~/.mce/mcp-auth.json）
-- [ ] 7.2 工具实现：get_user_brief / search_profile / get_claim_evidence / correct_profile / get_profile_suggestions / get_dream_report（紧凑中文输出、证据引文限长、无原文批量导出）
+- [x] 7.1 项目骨架：Python MCP SDK（stdio）+ api-server 认证（login + refresh token 持久化 ~/.mce/mcp-auth.json）
+- [x] 7.2 工具实现：get_user_brief / search_profile / get_claim_evidence / correct_profile / get_profile_suggestions / get_dream_report（紧凑中文输出、证据引文限长、无原文批量导出）
 - [ ] 7.3 注册到 Claude Code 与 Codex 配置并实测会话内调用
 
 ## 8. 验收与归档
