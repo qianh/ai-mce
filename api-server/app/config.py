@@ -39,6 +39,29 @@ class Settings(BaseSettings):
         default=None,
         validation_alias=AliasChoices("AI_MCE_SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_SERVICE_ROLE_KEY"),
     )
+    profile_enabled: bool = Field(
+        default=False, validation_alias=AliasChoices("MCE_PROFILE_ENABLED", "PROFILE_ENABLED")
+    )
+    llm_base_url: str | None = Field(default=None, validation_alias=AliasChoices("MCE_LLM_BASE_URL", "LLM_BASE_URL"))
+    llm_api_key: str | None = Field(default=None, validation_alias=AliasChoices("MCE_LLM_API_KEY", "LLM_API_KEY"))
+    llm_model: str | None = Field(default=None, validation_alias=AliasChoices("MCE_LLM_MODEL", "LLM_MODEL"))
+    embedding_base_url: str | None = Field(
+        default=None, validation_alias=AliasChoices("MCE_EMBEDDING_BASE_URL", "EMBEDDING_BASE_URL")
+    )
+    embedding_api_key: str | None = Field(
+        default=None, validation_alias=AliasChoices("MCE_EMBEDDING_API_KEY", "EMBEDDING_API_KEY")
+    )
+    embedding_model: str | None = Field(
+        default=None, validation_alias=AliasChoices("MCE_EMBEDDING_MODEL", "EMBEDDING_MODEL")
+    )
+    embedding_dim: int = Field(default=1024, validation_alias=AliasChoices("MCE_EMBEDDING_DIM", "EMBEDDING_DIM"))
+    profile_pipeline_version: str = Field(
+        default="v1", validation_alias=AliasChoices("MCE_PROFILE_PIPELINE_VERSION", "PROFILE_PIPELINE_VERSION")
+    )
+    profile_value_threshold: float = Field(
+        default=0.3, validation_alias=AliasChoices("MCE_PROFILE_VALUE_THRESHOLD", "PROFILE_VALUE_THRESHOLD")
+    )
+    dream_cron: str = Field(default="0 4 * * *", validation_alias=AliasChoices("MCE_DREAM_CRON", "DREAM_CRON"))
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

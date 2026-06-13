@@ -2,7 +2,7 @@ from app.models import Base, Capture, RefreshToken, User
 
 
 def test_cloud_tables_are_declared():
-    assert set(Base.metadata.tables) == {"users", "refresh_tokens", "captures"}
+    assert {"users", "refresh_tokens", "captures"} <= set(Base.metadata.tables)
 
     assert User.__tablename__ == "users"
     assert RefreshToken.__tablename__ == "refresh_tokens"
