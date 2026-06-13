@@ -77,6 +77,34 @@ def test_append_only_digests_only_new_range(db_session):
     assert "[0]" not in llm.prompts[0]
 
 
+def test_failed_run_can_be_retried(db_session):
+    """唯一约束不得阻断失败后的重试（spec: Digest 失败后续可补跑）。"""
+    import pytest
+
+    cap = _make_capture(db_session, _msgs(4))
+
+    class BoomLLM:
+        def chat_json(self, *a, **kw):
+            raise RuntimeError("llm down")
+
+    with pytest.raises(RuntimeError):
+        digest_capture(db_session, cap.id, BoomLLM(), FakeEmbedder(), run_type="digest")
+    assert db_session.query(pm.AnalysisRun).filter_by(status="failed").count() == 1
+
+    run = digest_capture(db_session, cap.id, FakeLLM([_seg_resp(0, 3), _atom_resp(0, 1)]),
+                         FakeEmbedder(), run_type="digest")
+    assert run.status == "succeeded"
+    assert db_session.query(pm.AnalysisRun).count() == 1  # 复用同一行，不新增
+
+
+def test_digest_accepts_string_capture_id(db_session):
+    """入库钩子/backfill 传的是 str id，必须同样可用。"""
+    cap = _make_capture(db_session, _msgs(4))
+    run = digest_capture(db_session, str(cap.id), FakeLLM([_seg_resp(0, 3), _atom_resp(0, 1)]),
+                         FakeEmbedder(), run_type="digest")
+    assert run.status == "succeeded"
+
+
 def test_modified_supersedes_old_artifacts(db_session):
     cap = _make_capture(db_session, _msgs(4))
     digest_capture(db_session, cap.id, FakeLLM([_seg_resp(0, 3), _atom_resp(0, 1)]),

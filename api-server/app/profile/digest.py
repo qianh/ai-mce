@@ -37,9 +37,12 @@ def _supersede_all(session: Session, capture_id: UUID) -> None:
         atom.status = "superseded"
 
 
-def digest_capture(session: Session, capture_id: UUID, llm, embedder,
+def digest_capture(session: Session, capture_id: UUID | str, llm, embedder,
                    run_type: str = "digest", value_threshold: float = 0.3,
                    pipeline_version: str = PIPELINE_VERSION) -> pm.AnalysisRun:
+    if not isinstance(capture_id, UUID):
+        capture_id = UUID(str(capture_id))
+
     capture = session.get(Capture, capture_id)
     if capture is None:
         raise ValueError(f"capture {capture_id} not found")
@@ -59,12 +62,31 @@ def digest_capture(session: Session, capture_id: UUID, llm, embedder,
     last = _last_successful_run(session, capture_id)
     diff = diff_hashes(last.message_hashes if last else None, new_hashes)
 
-    run = pm.AnalysisRun(user_id=capture.user_id, capture_id=capture_id,
-                         content_hash=capture.content_hash, pipeline_version=pipeline_version,
-                         run_type=run_type, diff_type=diff.diff_type,
-                         message_hashes=new_hashes, status="running",
-                         started_at=datetime.now(timezone.utc))
-    session.add(run)
+    # 失败的 run 可以重试：复用同一行（upsert 语义），避免 UniqueConstraint 冲突
+    failed = session.execute(
+        select(pm.AnalysisRun).where(
+            pm.AnalysisRun.capture_id == capture_id,
+            pm.AnalysisRun.content_hash == capture.content_hash,
+            pm.AnalysisRun.pipeline_version == pipeline_version,
+            pm.AnalysisRun.status == "failed")
+    ).scalars().first()
+
+    if failed is not None:
+        run = failed
+        run.run_type = run_type
+        run.diff_type = diff.diff_type
+        run.message_hashes = new_hashes
+        run.status = "running"
+        run.error = None
+        run.started_at = datetime.now(timezone.utc)
+        run.finished_at = None
+    else:
+        run = pm.AnalysisRun(user_id=capture.user_id, capture_id=capture_id,
+                             content_hash=capture.content_hash, pipeline_version=pipeline_version,
+                             run_type=run_type, diff_type=diff.diff_type,
+                             message_hashes=new_hashes, status="running",
+                             started_at=datetime.now(timezone.utc))
+        session.add(run)
     session.flush()
 
     try:
