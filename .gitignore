@@ -8,3 +8,6 @@ api-server/*.db
 api-server/.venv/
 extension/.output/
 /mce-scanner
+
+# Claude Code tooling (git worktrees created by EnterWorktree)
+.claude/worktrees/
